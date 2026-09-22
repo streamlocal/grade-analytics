@@ -5,7 +5,7 @@ import { useSnapshots } from '../hooks/useData';
 import { supabase } from '../services/supabaseClient';
 import { Card, Empty, Skeleton } from '../components/ui';
 import { HistoryChart } from '../charts/charts';
-import { fmtPct, letterFor } from '../utils/format';
+import { fmtPct, letterFor, isSubmitted } from '../utils/format';
 import { qualityPoints, effectiveScore, type CourseLevel } from '../utils/gpa';
 
 export default function CourseDetail() {
@@ -64,7 +64,7 @@ export default function CourseDetail() {
         <Card><div className="stat"><div className="l">Current</div><div className="v">{fmtPct(effectiveScore(course))} {course.current_grade ?? letterFor(effectiveScore(course))}</div></div></Card>
         <Card><div className="stat"><div className="l">Highest</div><div className="v">{fmtPct(hi)}</div></div></Card>
         <Card><div className="stat"><div className="l">Lowest</div><div className="v">{fmtPct(lo)}</div></div></Card>
-        <Card><div className="stat"><div className="l">Missing</div><div className="v">{assignments.filter((a) => a.missing).length}</div></div></Card>
+        <Card><div className="stat"><div className="l">Missing</div><div className="v">{assignments.filter((a) => a.missing && !isSubmitted(a)).length}</div></div></Card>
       </div>
       <Card>
         <div className="toolbar">
@@ -92,7 +92,7 @@ export default function CourseDetail() {
                 <td>{a.name}</td>
                 <td>{a.due_at ? new Date(a.due_at).toLocaleDateString() : '—'}</td>
                 <td>{a.score == null ? 'Ungraded' : `${a.score}/${a.points_possible}`}</td>
-                <td>{a.excused ? 'Excused' : a.missing ? 'Missing' : a.late ? 'Late' : '—'}</td>
+                <td>{a.excused ? 'Excused' : isSubmitted(a) ? (a.score == null ? 'Submitted' : 'Graded') : a.missing ? 'Missing' : a.late ? 'Late' : 'Unsubmitted'}</td>
               </tr>
             ))}
           </tbody>

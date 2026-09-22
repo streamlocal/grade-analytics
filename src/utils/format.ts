@@ -44,3 +44,8 @@ export function scoreAt(snapshots: { score: number | null; created_at: string }[
   const pick = older.length ? older[older.length - 1] : snapshots[0];
   return pick?.score ?? null;
 }
+
+// Effective submitted status: manual override wins, else Canvas submission.
+export function isSubmitted(a: { submitted_at: string | null; submitted_override?: boolean | null }): boolean {
+  return a.submitted_override ?? (a.submitted_at != null);
+}

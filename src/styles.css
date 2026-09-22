@@ -57,6 +57,9 @@ table.data th, table.data td { text-align: left; padding: 8px; border-bottom: 1p
 .skeleton .sk-line { height: 14px; border-radius: 6px; background: linear-gradient(90deg, rgba(128,128,128,.2), rgba(128,128,128,.35), rgba(128,128,128,.2)); margin: 8px 0; animation: pulse 1.2s infinite; }
 @keyframes pulse { 50% { opacity: .5; } }
 .empty { padding: 18px; border: 1px dashed var(--border); border-radius: 12px; color: var(--muted); }
+.chip { border: 1px solid var(--border); background: transparent; color: var(--muted); padding: 3px 10px; border-radius: 999px; cursor: pointer; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.chip:hover { color: var(--text); }
+.chip-on { color: var(--up); border-color: color-mix(in srgb, var(--up) 55%, transparent); background: color-mix(in srgb, var(--up) 14%, transparent); }
 .error { padding: 12px; border: 1px solid var(--down); color: var(--down); border-radius: 10px; }
 .history-chart { width: 100%; height: auto; }
 .toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0; }

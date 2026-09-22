@@ -5,7 +5,7 @@ import { supabase } from '../services/supabaseClient';
 import { useEffect, useState } from 'react';
 import { Card, Empty, Skeleton } from '../components/ui';
 import { Sparkline } from '../charts/charts';
-import { delta, deltaClass, fmtDateTime, fmtPct, letterFor, scoreAt } from '../utils/format';
+import { delta, deltaClass, fmtDateTime, fmtPct, letterFor, scoreAt, isSubmitted } from '../utils/format';
 import { overallGpa, qualityPoints, effectiveScore } from '../utils/gpa';
 import type { CourseSnapshot } from '../models/types';
 
@@ -35,7 +35,7 @@ export default function Dashboard() {
 
   const dueSoon = assignments.filter((a) => a.due_at && !a.excused && a.score == null &&
     new Date(a.due_at).getTime() > Date.now() && new Date(a.due_at).getTime() < Date.now() + 7 * 86400_000);
-  const missing = assignments.filter((a) => a.missing);
+  const missing = assignments.filter((a) => a.missing && !isSubmitted(a));
   const recentGraded = [...assignments].filter((a) => a.score != null).slice(0, 5);
   const scored = tracked.map((c) => effectiveScore(c)).filter((v): v is number => v != null);
   const avg = scored.length ? scored.reduce((a, b) => a + b, 0) / scored.length : null;

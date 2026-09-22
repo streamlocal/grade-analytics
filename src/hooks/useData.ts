@@ -34,13 +34,15 @@ export function useSnapshots(courseId: string | null) {
 export function useAssignments(courseId?: string | null) {
   const [rows, setRows] = useState<Assignment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [tick, setTick] = useState(0);
+  const reload = () => setTick((t) => t + 1);
   useEffect(() => {
     setLoading(true);
     let q = supabase.from('assignments').select('*').order('due_at', { nullsFirst: false });
     if (courseId) q = q.eq('course_id', courseId);
     q.then(({ data }) => { setRows((data ?? []) as Assignment[]); setLoading(false); });
-  }, [courseId]);
-  return { assignments: rows, loading };
+  }, [courseId, tick]);
+  return { assignments: rows, loading, reload };
 }
 
 export function useActivity(limit = 30) {

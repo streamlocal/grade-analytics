@@ -38,6 +38,7 @@ export interface Assignment {
   late: boolean;
   excused: boolean;
   submitted_at: string | null;
+  submitted_override: boolean | null;
   html_url: string | null;
 }
 
