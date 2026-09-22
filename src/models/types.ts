@@ -12,6 +12,7 @@ export interface Course {
   tracked: boolean;
   level: CourseLevel;
   score_override: number | null;
+  categories: { name: string; weight: number }[];
 }
 
 export interface CourseSnapshot {

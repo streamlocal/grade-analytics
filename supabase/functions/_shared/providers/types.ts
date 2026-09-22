@@ -27,11 +27,19 @@ export interface NormAssignment {
   htmlUrl: string | null;
 }
 
+export interface NormCategory {
+  name: string;
+  weight: number;
+}
+
 export interface LMSProvider {
   name: string;
   testConnection(baseUrl: string, token: string): Promise<{ userName: string }>;
   fetchCourses(baseUrl: string, token: string): Promise<NormCourse[]>;
-  fetchAssignments(baseUrl: string, token: string, lmsCourseId: string): Promise<NormAssignment[]>;
+  fetchAssignments(baseUrl: string, token: string, lmsCourseId: string): Promise<{
+    assignments: NormAssignment[];
+    categories: NormCategory[];
+  }>;
 }
 
 export async function canvasFetch(baseUrl: string, token: string, path: string) {

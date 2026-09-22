@@ -1,4 +1,4 @@
-import type { LMSProvider, NormAssignment, NormCourse } from './types.ts';
+import type { LMSProvider, NormCategory, NormCourse } from './types.ts';
 import { canvasFetch } from './types.ts';
 
 // Canvas provider. Default host: https://saintignatius.instructure.com
@@ -30,7 +30,7 @@ export const canvasProvider: LMSProvider = {
     });
   },
 
-  async fetchAssignments(baseUrl, token, lmsCourseId): Promise<NormAssignment[]> {
+  async fetchAssignments(baseUrl, token, lmsCourseId) {
     const [assignments, subs, groups] = await Promise.all([
       canvasFetch(baseUrl, token, `/api/v1/courses/${lmsCourseId}/assignments?per_page=100&include[]=submission`),
       canvasFetch(baseUrl, token, `/api/v1/courses/${lmsCourseId}/students/submissions?student_ids[]=self&per_page=100&include[]=assignment`),
@@ -40,11 +40,14 @@ export const canvasProvider: LMSProvider = {
     const subById: Record<string, Record<string, unknown>> = {};
     for (const s of (Array.isArray(subs) ? subs : [])) subById[String(s.assignment_id)] = s;
     const groupName: Record<string, string> = {};
+    const categories: NormCategory[] = [];
     for (const g of (Array.isArray(groups) ? groups : [])) {
-      if (g?.id != null) groupName[String(g.id)] = g.name ?? 'Group';
+      if (g?.id == null) continue;
+      groupName[String(g.id)] = g.name ?? 'Group';
+      categories.push({ name: g.name ?? 'Group', weight: Number(g.group_weight ?? 0) || 0 });
     }
 
-    return (Array.isArray(assignments) ? assignments : []).map((a) => {
+    const list = (Array.isArray(assignments) ? assignments : []).map((a) => {
       const inline = a.submission ?? {};
       const extra = subById[String(a.id)] ?? {};
       const sub = { ...inline, ...extra } as Record<string, unknown>;
@@ -68,5 +71,7 @@ export const canvasProvider: LMSProvider = {
         htmlUrl: a.html_url ?? null,
       };
     });
+
+    return { assignments: list, categories };
   },
 };

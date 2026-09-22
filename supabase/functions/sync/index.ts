@@ -143,13 +143,16 @@ Deno.serve(async (req) => {
         score: lc.currentScore, grade: lc.currentGrade,
       });
 
-      // Assignments for this course.
-      let lmsAssign: Awaited<ReturnType<typeof provider.fetchAssignments>> = [];
+      // Assignments + Canvas categories (assignment groups) for this course.
+      let fetched: Awaited<ReturnType<typeof provider.fetchAssignments>> = { assignments: [], categories: [] };
       try {
-        lmsAssign = await provider.fetchAssignments(cred.base_url, token, lc.lmsCourseId);
+        fetched = await provider.fetchAssignments(cred.base_url, token, lc.lmsCourseId);
       } catch {
         continue; // partial failure: keep previous assignment data for this course
       }
+      const lmsAssign = fetched.assignments;
+      // Store real category names + weights for the What-if simulator.
+      await admin.from('courses').update({ categories: fetched.categories }).eq('id', courseId);
       const { data: prevAssign } = await admin.from('assignments').select('*').eq('course_id', courseId);
       const prevMap = new Map(((prevAssign ?? []) as Record<string, unknown>[]).map((a) => {
         const r = a as { id: string; lms_assignment_id: string; name: string; score: number | null; points_possible: number | null; missing: boolean; due_at: string | null };
