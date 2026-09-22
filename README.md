@@ -4,6 +4,25 @@ Private personal grade-analytics dashboard. Frontend: React + Vite on **GitHub P
 Backend: **Supabase** (Auth, Postgres + RLS, Edge Functions, pg_cron). LMS: **Canvas**
 (default host `https://saintignatius.instructure.com`), normalized so other providers can be added.
 
+## Deployed instance
+
+- Frontend: https://streamlocal.github.io/grade-analytics/
+- Backend: Supabase project `htyloqknzbovojsijamf` (us-west-2)
+- First visit: create your account with email + password (email auto-confirm is enabled),
+  then connect Canvas. You stay signed in on that device until you log out.
+
+## Secrets inventory (never commit these)
+
+| Where | Name | Purpose |
+| --- | --- | --- |
+| Supabase Edge secrets | `CREDENTIAL_ENCRYPTION_KEY` | AES-GCM key that decrypts the Canvas token (32 bytes, base64) |
+| Supabase Edge secrets | `CRON_SECRET` | Bearer secret for `cron-trigger` |
+| GitHub repo secrets | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` | Public frontend config (anon key only) |
+| GitHub repo secrets | `SUPABASE_URL`, `CRON_SECRET` | Backup daily-sync workflow trigger |
+
+The Canvas token itself is never stored in any of the above — it is entered in the UI and
+encrypted server-side inside `lms_connect` before touching `lms_credentials`.
+
 ## Minimum secure architecture
 
 - GitHub Pages serves **static UI only** — no secrets, no grade data in the repo or build output.
