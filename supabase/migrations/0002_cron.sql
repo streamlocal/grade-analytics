@@ -1,0 +1,19 @@
+-- Daily auto-sync via pg_cron + pg_net.
+-- Calls the cron-trigger Edge Function with the CRON_SECRET bearer token.
+-- The trigger fans out per connected user using stored encrypted credentials
+-- (no user session required). Secrets live in Supabase Vault / Edge secrets.
+--
+-- Replace <PROJECT_REF> and set app settings cron_secret + functions URL first.
+-- Run once in the Supabase SQL editor (not committed with real values):
+
+-- select cron.schedule(
+--   'grade-analytics-daily-sync',
+--   '0 11 * * *',  -- daily ~07:00 ET; adjust to your timezone
+--   $$
+--   select net.http_post(
+--     url := 'https://<PROJECT_REF>.supabase.co/functions/v1/cron-trigger',
+--     headers := '{"Authorization": "Bearer <CRON_SECRET>", "Content-Type": "application/json"}'::jsonb,
+--     body := '{}'::jsonb
+--   );
+--   $$
+-- );

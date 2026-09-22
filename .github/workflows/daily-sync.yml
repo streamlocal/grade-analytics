@@ -1,0 +1,21 @@
+name: Daily Sync (backup trigger)
+
+# Backup/trigger for the Supabase pg_cron daily sync.
+# Primary scheduler is pg_cron inside Supabase (see supabase/migrations/0002_cron.sql).
+# This workflow provides a redundant daily trigger + a manual button.
+on:
+  schedule:
+    - cron: '0 12 * * *' # daily ~08:00 ET
+  workflow_dispatch:
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Invoke cron-trigger Edge Function
+        run: |
+          curl -fsS -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -d '{}' \
+            "${{ secrets.SUPABASE_URL }}/functions/v1/cron-trigger"

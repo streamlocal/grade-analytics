@@ -1,0 +1,30 @@
+[project]
+name = "grade-analytics"
+
+[functions.sync]
+enabled = true
+verify_jwt = true
+
+[functions.lms-connect]
+enabled = true
+verify_jwt = true
+
+[functions.lms-test]
+enabled = true
+verify_jwt = true
+
+[functions.cron-trigger]
+enabled = true
+verify_jwt = false
+
+[functions.export-data]
+enabled = true
+verify_jwt = true
+
+[functions.delete-data]
+enabled = true
+verify_jwt = true
+
+[functions.user-sessions]
+enabled = true
+verify_jwt = true

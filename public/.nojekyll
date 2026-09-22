@@ -1,0 +1,3 @@
+# GitHub Pages SPA fallback
+# Hash routing is used (HashRouter), so deep links work without rewrites.
+# This file exists so unknown paths still serve index.html on project pages.
