@@ -10,7 +10,10 @@ interface Hypo { name: string; score: string; points: string; category: string }
 // Weighted, category-aware grade estimate. Categories + weights come from Canvas
 // (courses.categories); falls back to points-based when no weights are present.
 function gradeFrom(stat: Record<string, { e: number; p: number }>, categories: Course['categories']): number | null {
-  const weighted = (categories ?? []).filter((c) => c.weight > 0);
+  // Canvas can expose duplicate group names; keep the largest weight per name.
+  const byName = new Map<string, number>();
+  for (const c of categories ?? []) byName.set(c.name, Math.max(byName.get(c.name) ?? 0, c.weight));
+  const weighted = [...byName.entries()].filter(([, w]) => w > 0).map(([name, weight]) => ({ name, weight }));
   if (weighted.length) {
     let num = 0, den = 0;
     for (const c of weighted) {
