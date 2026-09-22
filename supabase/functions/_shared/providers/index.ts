@@ -1,5 +1,5 @@
-import { canvasProvider } from './providers/canvas.ts';
-import type { LMSProvider } from './providers/types.ts';
+import { canvasProvider } from './canvas.ts';
+import type { LMSProvider } from './types.ts';
 
 export function getProvider(name: string): LMSProvider {
   if (name === 'canvas') return canvasProvider;

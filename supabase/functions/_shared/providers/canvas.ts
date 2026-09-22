@@ -1,5 +1,5 @@
-import type { LMSProvider, NormAssignment, NormCourse } from '../types.ts';
-import { canvasFetch } from '../types.ts';
+import type { LMSProvider, NormAssignment, NormCourse } from './types.ts';
+import { canvasFetch } from './types.ts';
 
 // Canvas provider. Default host: https://saintignatius.instructure.com
 // Uses official REST API: /api/v1/courses, enrollments, assignments, submissions.
