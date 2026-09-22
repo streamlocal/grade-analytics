@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { api } from '../services/api';
 import { supabase } from '../services/supabaseClient';
 import { useAuth } from '../hooks/AuthContext';
-import { getRememberPreference, setRememberPreference } from '../services/supabaseClient';
 import { Card } from '../components/ui';
 import { fmtDateTime } from '../utils/format';
 
@@ -21,7 +20,6 @@ export default function Settings({ onNeedsSetup }: { onNeedsSetup: () => void })
   const [busy, setBusy] = useState(false);
   const [sessions, setSessions] = useState<{ id: string; created_at: string; last_active?: string; current?: boolean }[]>([]);
   const [lastSync, setLastSync] = useState<string>('—');
-  const [rememberLocal, setRememberLocal] = useState(getRememberPreference());
 
   async function refresh() {
     try {
@@ -89,8 +87,8 @@ export default function Settings({ onNeedsSetup }: { onNeedsSetup: () => void })
       <Card>
         <h3>Sessions / devices</h3>
         <label className="row" style={{ flexDirection: 'row' }}>
-          <input type="checkbox" style={{ width: 18 }} checked={rememberLocal}
-            onChange={(e) => { setRememberLocal(e.target.checked); setRememberPreference(e.target.checked); setRemember(e.target.checked); }} />
+          <input type="checkbox" style={{ width: 18 }} checked={remember}
+            onChange={(e) => { void setRemember(e.target.checked); }} />
           Remember this device (default ON)
         </label>
         {sessions.length > 0 ? sessions.map((s) => (

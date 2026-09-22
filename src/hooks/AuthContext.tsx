@@ -1,19 +1,19 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
-import { supabase, getRememberPreference } from '../services/supabaseClient';
+import { supabase, getRememberPreference, refreshAuthClient, onClientChange } from '../services/supabaseClient';
 
 interface AuthCtx {
   session: Session | null;
   user: User | null;
   loading: boolean;
   remember: boolean;
-  setRemember: (v: boolean) => void;
+  setRemember: (v: boolean) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
 const Ctx = createContext<AuthCtx>({
   session: null, user: null, loading: true, remember: true,
-  setRemember: () => {}, signOut: async () => {},
+  setRemember: async () => {}, signOut: async () => {},
 });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -22,24 +22,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [remember, setRememberState] = useState(getRememberPreference());
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setLoading(false);
-    });
-    const { data: sub } = supabase.auth.onAuthStateChange((_ev, s) => {
-      setSession(s);
-      setLoading(false);
-    });
-    return () => sub.subscription.unsubscribe();
+    let unsub = () => {};
+    const attach = () => {
+      // Restore persisted session on load (persistSession=true by default).
+      supabase.auth.getSession().then(({ data }) => {
+        setSession(data.session);
+        setLoading(false);
+      });
+      const { data: sub } = supabase.auth.onAuthStateChange((_ev, s) => {
+        setSession(s);
+        setLoading(false);
+      });
+      unsub = () => sub.subscription.unsubscribe();
+    };
+    attach();
+    // If the client is rebuilt (remember toggle), re-bind listeners.
+    const off = onClientChange(() => { unsub(); attach(); });
+    return () => { off(); unsub(); };
   }, []);
 
-  const setRemember = (v: boolean) => {
-    setRememberState(v);
+  // Change persistence for the current device and carry the session across.
+  const setRemember = async (v: boolean) => {
     localStorage.setItem('ga-remember', v ? 'on' : 'off');
+    setRememberState(v);
+    const { data } = await supabase.auth.getSession();
+    refreshAuthClient();
+    if (data.session) {
+      await supabase.auth.setSession({
+        access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token,
+      });
+    }
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut(); // current device
+    await supabase.auth.signOut(); // current device only
     setSession(null);
   };
 
