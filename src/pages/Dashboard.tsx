@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import { Card, Empty, Skeleton } from '../components/ui';
 import { Sparkline } from '../charts/charts';
 import { delta, deltaClass, fmtDateTime, fmtPct, letterFor, scoreAt } from '../utils/format';
-import { overallGpa, qualityPoints } from '../utils/gpa';
+import { overallGpa, qualityPoints, effectiveScore } from '../utils/gpa';
 import type { CourseSnapshot } from '../models/types';
 
 function useAllSnapshots(courseIds: string[]) {
@@ -37,10 +37,9 @@ export default function Dashboard() {
     new Date(a.due_at).getTime() > Date.now() && new Date(a.due_at).getTime() < Date.now() + 7 * 86400_000);
   const missing = assignments.filter((a) => a.missing);
   const recentGraded = [...assignments].filter((a) => a.score != null).slice(0, 5);
-  const avg = tracked.length
-    ? tracked.reduce((s, c) => s + (c.current_score ?? 0), 0) / Math.max(tracked.filter((c) => c.current_score != null).length, 1)
-    : null;
-  const gpa = overallGpa(tracked.map((c) => ({ score: c.current_score, level: c.level ?? 'Regular' })));
+  const scored = tracked.map((c) => effectiveScore(c)).filter((v): v is number => v != null);
+  const avg = scored.length ? scored.reduce((a, b) => a + b, 0) / scored.length : null;
+  const gpa = overallGpa(tracked.map((c) => ({ score: effectiveScore(c), level: c.level ?? 'Regular' })));
 
   if (loading) return <main><Skeleton lines={6} /></main>;
   if (error) return <main><div className="error">{error}</div></main>;
@@ -62,15 +61,16 @@ export default function Dashboard() {
       <div className="grid cards">
         {tracked.map((c) => {
           const s = snaps[c.id] ?? [];
-          const d1 = delta(scoreAt(s, 1), c.current_score);
-          const d7 = delta(scoreAt(s, 7), c.current_score);
-          const d30 = delta(scoreAt(s, 30), c.current_score);
+          const cur = effectiveScore(c);
+          const d1 = delta(scoreAt(s, 1), cur);
+          const d7 = delta(scoreAt(s, 7), cur);
+          const d30 = delta(scoreAt(s, 30), cur);
           const miss = missing.filter((a) => a.course_id === c.id).length;
           return (
             <Card key={c.id}>
               <div className="row" style={{ justifyContent: 'space-between' }}>
                 <Link to={`/course/${c.id}`}><strong>{c.name}</strong></Link>
-                <span>{fmtPct(c.current_score)} · {c.current_grade ?? letterFor(c.current_score)} · QP {qualityPoints(c.current_score, c.level ?? 'Regular')?.toFixed(2) ?? '—'}</span>
+                <span>{fmtPct(cur)} · {c.current_grade ?? letterFor(cur)} · QP {qualityPoints(cur, c.level ?? 'Regular')?.toFixed(2) ?? '—'}</span>
               </div>
               <Sparkline points={s.map((x) => x.score)} />
               <div className="row muted" style={{ fontSize: 13 }}>

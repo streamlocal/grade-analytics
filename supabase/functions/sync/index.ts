@@ -75,13 +75,29 @@ Deno.serve(async (req) => {
   }
 
   // ---- full sync (locked: one running job per user) ----
-  const { data: existing } = await admin.from('sync_runs').select('id')
+  // One sync at a time per user. A crashed/timed-out run older than 15 minutes
+  // is reclaimed so a dead lock can never block future syncs permanently.
+  const { data: existing } = await admin.from('sync_runs').select('id,started_at')
     .eq('user_id', userId).eq('status', 'running').limit(1);
-  if (existing?.length) return json({ error: 'A sync is already running for this account.' }, 409);
+  if (existing?.length) {
+    const row = existing[0] as { id: string; started_at: string };
+    const ageMs = Date.now() - new Date(row.started_at).getTime();
+    if (ageMs < 15 * 60_000) {
+      return json({ error: 'A sync is already running for this account.' }, 409);
+    }
+    await admin.from('sync_runs').update({
+      status: 'failed', stage: 'Timed out', error: 'Stale lock reclaimed',
+      finished_at: new Date().toISOString(),
+    }).eq('id', row.id);
+  }
 
-  const { data: run } = await admin.from('sync_runs')
+  const { data: run, error: runErr } = await admin.from('sync_runs')
     .insert({ user_id: userId, status: 'running', stage: 'Connecting' }).select('id').single();
-  const runId = (run as { id: string } | null)?.id;
+  if (runErr || !run) {
+    // Lost a race for the lock — treat as "already running".
+    return json({ error: 'A sync is already running for this account.' }, 409);
+  }
+  const runId = (run as { id: string }).id;
   const setStage = (stage: string) =>
     runId ? admin.from('sync_runs').update({ stage }).eq('id', runId) : Promise.resolve();
 

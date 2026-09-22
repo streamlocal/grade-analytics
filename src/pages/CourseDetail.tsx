@@ -6,7 +6,7 @@ import { supabase } from '../services/supabaseClient';
 import { Card, Empty, Skeleton } from '../components/ui';
 import { HistoryChart } from '../charts/charts';
 import { fmtPct, letterFor } from '../utils/format';
-import { qualityPoints, type CourseLevel } from '../utils/gpa';
+import { qualityPoints, effectiveScore, type CourseLevel } from '../utils/gpa';
 
 export default function CourseDetail() {
   const { id } = useParams();
@@ -58,10 +58,10 @@ export default function CourseDetail() {
             <option value="Free">Free period (excluded)</option>
           </select>
         </label>
-        <span className="muted">Quality points: <strong>{qualityPoints(course.current_score, level)?.toFixed(2) ?? '—'}</strong></span>
+        <span className="muted">Quality points: <strong>{qualityPoints(effectiveScore(course), level)?.toFixed(2) ?? '—'}</strong></span>
       </div>
       <div className="grid stats">
-        <Card><div className="stat"><div className="l">Current</div><div className="v">{fmtPct(course.current_score)} {course.current_grade ?? letterFor(course.current_score)}</div></div></Card>
+        <Card><div className="stat"><div className="l">Current</div><div className="v">{fmtPct(effectiveScore(course))} {course.current_grade ?? letterFor(effectiveScore(course))}</div></div></Card>
         <Card><div className="stat"><div className="l">Highest</div><div className="v">{fmtPct(hi)}</div></div></Card>
         <Card><div className="stat"><div className="l">Lowest</div><div className="v">{fmtPct(lo)}</div></div></Card>
         <Card><div className="stat"><div className="l">Missing</div><div className="v">{assignments.filter((a) => a.missing).length}</div></div></Card>

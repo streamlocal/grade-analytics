@@ -66,8 +66,8 @@ export interface Series {
   points: { t: string; score: number | null }[];
 }
 
-export function MultiLineChart({ series, width = 820, height = 340, onSelect }: {
-  series: Series[]; width?: number; height?: number; onSelect?: (id: string) => void;
+export function MultiLineChart({ series, width = 820, height = 340, onSelect, unit = '%' }: {
+  series: Series[]; width?: number; height?: number; onSelect?: (id: string) => void; unit?: string;
 }) {
   const nums = series.flatMap((s) => s.points.map((p) => p.score)).filter((v): v is number => v != null);
   const times = series.flatMap((s) => s.points.map((p) => new Date(p.t).getTime())).filter((t) => !Number.isNaN(t));
@@ -92,7 +92,7 @@ export function MultiLineChart({ series, width = 820, height = 340, onSelect }: 
         return (
           <g key={f}>
             <line x1={pad.l} x2={pad.l + iw} y1={y(v)} y2={y(v)} stroke="currentColor" strokeOpacity="0.1" />
-            <text x={4} y={y(v) + 4} fontSize="11" fill="currentColor" opacity="0.7">{v.toFixed(1)}%</text>
+            <text x={4} y={y(v) + 4} fontSize="11" fill="currentColor" opacity="0.7">{v.toFixed(1)}{unit}</text>
           </g>
         );
       })}
@@ -108,7 +108,7 @@ export function MultiLineChart({ series, width = 820, height = 340, onSelect }: 
         <circle key={`${s.id}-${i}`} cx={x(new Date(p.t).getTime())} cy={y(p.score as number)} r="2.6"
           fill={s.color} style={{ cursor: onSelect ? 'pointer' : 'default' }}
           onClick={() => onSelect?.(s.id)}>
-          <title>{`${s.name}\n${new Date(p.t).toLocaleString()} — ${(p.score as number).toFixed(2)}%`}</title>
+          <title>{`${s.name}\n${new Date(p.t).toLocaleString()} — ${(p.score as number).toFixed(2)}${unit}`}</title>
         </circle>
       )))}
     </svg>

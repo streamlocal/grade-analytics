@@ -7,6 +7,11 @@
 
 export type CourseLevel = 'Regular' | 'Honors' | 'AP' | 'Free';
 
+// Effective grade = manual override (if set) else Canvas score.
+export function effectiveScore(c: { current_score: number | null; score_override?: number | null }): number | null {
+  return c.score_override ?? c.current_score;
+}
+
 // Base quality points by rounded-down integer percentage.
 const TABLE: Record<number, number> = {
   100: 4.3, 99: 4.3, 98: 4.3, 97: 4.2, 96: 4.1, 95: 4.0, 94: 3.9,
