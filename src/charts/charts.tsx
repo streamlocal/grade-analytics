@@ -51,3 +51,66 @@ export function HistoryChart({ points, width = 640, height = 220 }: {
     </svg>
   );
 }
+
+// Distinct, colorblind-friendly-ish palette for multi-course charts.
+export const SERIES_COLORS = [
+  '#5b8cff', '#34d399', '#f59e0b', '#f472b6', '#22d3ee',
+  '#a78bfa', '#fb7185', '#84cc16', '#f97316', '#14b8a6',
+  '#eab308', '#818cf8',
+];
+
+export interface Series {
+  id: string;
+  name: string;
+  color: string;
+  points: { t: string; score: number | null }[];
+}
+
+export function MultiLineChart({ series, width = 820, height = 340, onSelect }: {
+  series: Series[]; width?: number; height?: number; onSelect?: (id: string) => void;
+}) {
+  const nums = series.flatMap((s) => s.points.map((p) => p.score)).filter((v): v is number => v != null);
+  const times = series.flatMap((s) => s.points.map((p) => new Date(p.t).getTime())).filter((t) => !Number.isNaN(t));
+  if (nums.length < 2 || times.length < 2) {
+    return <div className="empty">Not enough history yet — sync again over time to build the graph.</div>;
+  }
+  const tMin = Math.min(...times), tMax = Math.max(...times);
+  const tSpan = Math.max(tMax - tMin, 1);
+  const min = Math.min(...nums), max = Math.max(...nums);
+  const span = Math.max(max - min, 1);
+  const pad = { l: 46, r: 14, t: 14, b: 28 };
+  const iw = width - pad.l - pad.r;
+  const ih = height - pad.t - pad.b;
+  const x = (t: number) => pad.l + ((t - tMin) / tSpan) * iw;
+  const y = (v: number) => pad.t + ih - ((v - min) / span) * ih;
+  const dayLabel = (t: number) => new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="history-chart" role="img" aria-label="Grade history by course">
+      {[0, 0.25, 0.5, 0.75, 1].map((f) => {
+        const v = max - f * span;
+        return (
+          <g key={f}>
+            <line x1={pad.l} x2={pad.l + iw} y1={y(v)} y2={y(v)} stroke="currentColor" strokeOpacity="0.1" />
+            <text x={4} y={y(v) + 4} fontSize="11" fill="currentColor" opacity="0.7">{v.toFixed(1)}%</text>
+          </g>
+        );
+      })}
+      <text x={pad.l} y={height - 8} fontSize="11" fill="currentColor" opacity="0.6">{dayLabel(tMin)}</text>
+      <text x={pad.l + iw} y={height - 8} fontSize="11" fill="currentColor" opacity="0.6" textAnchor="end">{dayLabel(tMax)}</text>
+      {series.map((s) => {
+        const pts = s.points.filter((p) => p.score != null);
+        if (pts.length < 2) return null;
+        const d = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(new Date(p.t).getTime()).toFixed(1)},${y(p.score as number).toFixed(1)}`).join(' ');
+        return <path key={s.id} d={d} fill="none" stroke={s.color} strokeWidth="2.25" strokeLinejoin="round" opacity="0.92" />;
+      })}
+      {series.map((s) => s.points.filter((p) => p.score != null).map((p, i) => (
+        <circle key={`${s.id}-${i}`} cx={x(new Date(p.t).getTime())} cy={y(p.score as number)} r="2.6"
+          fill={s.color} style={{ cursor: onSelect ? 'pointer' : 'default' }}
+          onClick={() => onSelect?.(s.id)}>
+          <title>{`${s.name}\n${new Date(p.t).toLocaleString()} — ${(p.score as number).toFixed(2)}%`}</title>
+        </circle>
+      )))}
+    </svg>
+  );
+}

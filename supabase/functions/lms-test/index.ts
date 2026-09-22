@@ -1,9 +1,12 @@
 // lms-test: verify the stored credential against the live LMS.
 // Returns only { ok, user_name, checked_at } — never the token.
 import { adminClient, requireUser, decryptCredential, json } from '../_shared/auth.ts';
+import { preflight } from '../_shared/cors.ts';
 import { getProvider } from '../_shared/providers/index.ts';
 
 Deno.serve(async (req) => {
+  const pre = preflight(req);
+  if (pre) return pre;
   let user;
   try {
     ({ user } = await requireUser(req));

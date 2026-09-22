@@ -1,7 +1,10 @@
 // export-data: return the user's own rows as JSON for download.
 import { adminClient, requireUser, json } from '../_shared/auth.ts';
+import { preflight } from '../_shared/cors.ts';
 
 Deno.serve(async (req) => {
+  const pre = preflight(req);
+  if (pre) return pre;
   let user;
   try {
     ({ user } = await requireUser(req));

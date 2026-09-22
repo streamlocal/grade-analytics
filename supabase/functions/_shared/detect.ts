@@ -11,18 +11,32 @@ export interface ChangeEvent {
   newValue: Record<string, unknown> | null;
 }
 
+// Normalizers: Postgres returns numerics/timestamps in formats that differ
+// textually from the LMS (e.g. "+00:00" vs "Z"). Compare by value, not string.
+function num(v: unknown): number | null {
+  if (v == null || v === '') return null;
+  const n = Number(v);
+  return Number.isNaN(n) ? null : n;
+}
+function timeOf(v: unknown): number | null {
+  if (!v) return null;
+  const t = new Date(String(v)).getTime();
+  return Number.isNaN(t) ? null : t;
+}
+
 export function detectCourseGradeChange(
   courseName: string, courseId: string,
   oldScore: number | null, newScore: number | null
 ): ChangeEvent | null {
-  if (oldScore == null || newScore == null) return null;
-  if (Math.abs(newScore - oldScore) < 0.05) return null;
-  const dir = newScore > oldScore ? 'increased' : 'decreased';
+  const o = num(oldScore), n = num(newScore);
+  if (o == null || n == null) return null;
+  if (Math.abs(n - o) < 0.05) return null;
+  const dir = n > o ? 'increased' : 'decreased';
   return {
     type: 'GRADE_CHANGED', courseId, assignmentId: null,
-    title: `${courseName} ${oldScore.toFixed(1)} → ${newScore.toFixed(1)}%`,
-    message: `${courseName} ${dir} from ${oldScore.toFixed(1)}% to ${newScore.toFixed(1)}%.`,
-    oldValue: { score: oldScore }, newValue: { score: newScore },
+    title: `${courseName} ${o.toFixed(1)} → ${n.toFixed(1)}%`,
+    message: `${courseName} ${dir} from ${o.toFixed(1)}% to ${n.toFixed(1)}%.`,
+    oldValue: { score: o }, newValue: { score: n },
   };
 }
 
@@ -57,14 +71,15 @@ export function detectAssignmentChanges(prev: Map<string, PrevAssign>, next: Nex
       });
       continue;
     }
-    if (p.score == null && n.score != null) {
+    const pScore = num(p.score), nScore = num(n.score);
+    if (pScore == null && nScore != null) {
       out.push({
         type: 'ASSIGNMENT_GRADED', courseId: n.courseId, assignmentId: n.id,
         title: `${n.name} graded ${n.score}/${n.points}`,
         message: `${n.courseName}: "${n.name}" was graded ${n.score}/${n.points}.`,
         oldValue: { score: null }, newValue: { score: n.score },
       });
-    } else if (p.score != null && n.score != null && p.score !== n.score) {
+    } else if (pScore != null && nScore != null && pScore !== nScore) {
       out.push({
         type: 'ASSIGNMENT_SCORE_CHANGED', courseId: n.courseId, assignmentId: n.id,
         title: `${n.name} score changed ${p.score} → ${n.score}`,
@@ -87,7 +102,7 @@ export function detectAssignmentChanges(prev: Map<string, PrevAssign>, next: Nex
         oldValue: { missing: false }, newValue: { missing: true },
       });
     }
-    if ((p.dueAt ?? null) !== (n.dueAt ?? null) && n.dueAt) {
+    if (timeOf(p.dueAt) !== timeOf(n.dueAt) && n.dueAt) {
       out.push({
         type: 'DUE_DATE_CHANGED', courseId: n.courseId, assignmentId: n.id,
         title: `"${n.name}" due date changed`,

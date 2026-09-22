@@ -2,8 +2,11 @@
 // the CRON_SECRET bearer token. Fans out a per-user sync using each account's
 // stored encrypted credential — no user session required.
 import { adminClient, json } from '../_shared/auth.ts';
+import { preflight } from '../_shared/cors.ts';
 
 Deno.serve(async (req) => {
+  const pre = preflight(req);
+  if (pre) return pre;
   const secret = Deno.env.get('CRON_SECRET');
   const auth = req.headers.get('Authorization')?.replace('Bearer ', '') ?? '';
   if (!secret || auth !== secret) return json({ error: 'Forbidden' }, 403);

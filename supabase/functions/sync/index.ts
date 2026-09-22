@@ -2,6 +2,7 @@
 // Modes: { mode: 'discover' } | { mode: 'set-tracked', course_ids } | { mode: 'sync' }
 // Service-role callers (cron-trigger) may pass { for_user } to sync without a user JWT.
 import { adminClient, requireUser, decryptCredential, json } from '../_shared/auth.ts';
+import { preflight } from '../_shared/cors.ts';
 import { getProvider } from '../_shared/providers/index.ts';
 import { detectCourseGradeChange, detectAssignmentChanges, type NextAssign } from '../_shared/detect.ts';
 
@@ -14,7 +15,19 @@ async function resolveUser(req: Request, body: Record<string, unknown>) {
   return { userId: user.id, admin };
 }
 
+// Best-effort initial course level from the Canvas course name.
+// A user can override this later; it is only applied on first insert.
+function detectLevel(name: string): 'Regular' | 'Honors' | 'AP' | 'Free' {
+  const n = (name ?? '').toLowerCase();
+  if (/\bfree (period|block)\b/.test(n)) return 'Free';
+  if (/(^|\W)(ap|advanced placement)(\W|$)/.test(n)) return 'AP';
+  if (/\bhonors?\b/.test(n)) return 'Honors';
+  return 'Regular';
+}
+
 Deno.serve(async (req) => {
+  const pre = preflight(req);
+  if (pre) return pre;
   if (req.method !== 'POST') return json({ error: 'POST only' }, 405);
   const body = await req.json().catch(() => ({}));
   let userId, admin;
@@ -30,13 +43,18 @@ Deno.serve(async (req) => {
     try {
       const { cred, token } = await decryptCredential(admin, userId);
       const courses = await getProvider(cred.provider).fetchCourses(cred.base_url, token);
+      const { data: existing } = await admin.from('courses').select('lms_course_id').eq('user_id', userId);
+      const known = new Set(((existing ?? []) as { lms_course_id: string }[]).map((c) => c.lms_course_id));
       for (const c of courses) {
-        await admin.from('courses').upsert({
+        const row: Record<string, unknown> = {
           user_id: userId, lms_course_id: c.lmsCourseId, name: c.name,
           course_code: c.courseCode, teacher_names: c.teachers,
           current_score: c.currentScore, current_grade: c.currentGrade,
           updated_at: new Date().toISOString(),
-        }, { onConflict: 'user_id,lms_course_id' });
+        };
+        // Seed a sensible level for brand-new courses; never overwrite a user's choice.
+        if (!known.has(c.lmsCourseId)) row.level = detectLevel(c.name);
+        await admin.from('courses').upsert(row, { onConflict: 'user_id,lms_course_id' });
       }
       const { data } = await admin.from('courses').select('lms_course_id,name,tracked').eq('user_id', userId);
       return json({ courses: data ?? [] });
@@ -85,12 +103,17 @@ Deno.serve(async (req) => {
 
     for (const lc of lmsCourses) {
       const prev = prevByLms.get(lc.lmsCourseId);
-      const { data: up } = await admin.from('courses').upsert({
+      // Only set an initial level for brand-new courses so a user's manual
+      // Honors/AP/Free choice is never overwritten on later syncs.
+      const courseRow: Record<string, unknown> = {
         user_id: userId, lms_course_id: lc.lmsCourseId, name: lc.name,
         course_code: lc.courseCode, teacher_names: lc.teachers,
         current_score: lc.currentScore, current_grade: lc.currentGrade,
         updated_at: new Date().toISOString(),
-      }, { onConflict: 'user_id,lms_course_id' }).select('id,tracked').single();
+      };
+      if (!prev) courseRow.level = detectLevel(lc.name);
+      const { data: up } = await admin.from('courses').upsert(courseRow, { onConflict: 'user_id,lms_course_id' })
+        .select('id,tracked').single();
       const courseId = (up as { id: string } | null)?.id;
       const tracked = (up as { tracked: boolean } | null)?.tracked ?? true;
       if (!courseId || !tracked) continue;
@@ -138,8 +161,12 @@ Deno.serve(async (req) => {
           dueAt: la.dueAt, courseId, courseName: lc.name,
         });
       }
-      for (const ev of detectAssignmentChanges(prevMap, nextList)) {
-        events.push({ user_id: userId, type: ev.type, course_id: ev.courseId, assignment_id: ev.assignmentId, title: ev.title, message: ev.message, old_value: ev.oldValue, new_value: ev.newValue });
+      // Skip change detection on a course's first sync — otherwise every
+      // existing assignment would be reported as "newly added" (noise).
+      if (prevMap.size > 0) {
+        for (const ev of detectAssignmentChanges(prevMap, nextList)) {
+          events.push({ user_id: userId, type: ev.type, course_id: ev.courseId, assignment_id: ev.assignmentId, title: ev.title, message: ev.message, old_value: ev.oldValue, new_value: ev.newValue });
+        }
       }
     }
 

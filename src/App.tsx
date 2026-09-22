@@ -9,6 +9,7 @@ import Setup from './pages/Setup';
 import Dashboard from './pages/Dashboard';
 import CourseDetail from './pages/CourseDetail';
 import Assignments from './pages/Assignments';
+import History from './pages/History';
 import WhatIf from './pages/WhatIf';
 import Compare from './pages/Compare';
 import Settings from './pages/Settings';
@@ -55,6 +56,7 @@ function Shell() {
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/course/:id" element={<CourseDetail />} />
+        <Route path="/history" element={<History />} />
         <Route path="/assignments" element={<Assignments />} />
         <Route path="/what-if" element={<WhatIf />} />
         <Route path="/compare" element={<Compare />} />

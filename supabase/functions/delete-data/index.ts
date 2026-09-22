@@ -1,7 +1,10 @@
 // delete-data: remove ALL of the user's rows + stored credential.
 import { adminClient, requireUser, json } from '../_shared/auth.ts';
+import { preflight } from '../_shared/cors.ts';
 
 Deno.serve(async (req) => {
+  const pre = preflight(req);
+  if (pre) return pre;
   if (req.method !== 'POST') return json({ error: 'POST only' }, 405);
   let user;
   try {

@@ -3,9 +3,12 @@
 // and stored in lms_credentials — a table with NO client access.
 // Browser only ever receives masked metadata (last 4 chars).
 import { adminClient, requireUser, encryptToken, getCredential, json } from '../_shared/auth.ts';
+import { preflight } from '../_shared/cors.ts';
 import { getProvider } from '../_shared/providers/index.ts';
 
 Deno.serve(async (req) => {
+  const pre = preflight(req);
+  if (pre) return pre;
   if (req.method !== 'POST') return json({ error: 'POST only' }, 405);
   let user, admin;
   try {

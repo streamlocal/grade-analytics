@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
+import { corsHeaders } from './cors.ts';
 
 export function adminClient() {
   const url = Deno.env.get('SUPABASE_URL')!;
@@ -8,15 +9,18 @@ export function adminClient() {
 
 export async function requireUser(req: Request) {
   const jwt = req.headers.get('Authorization')?.replace('Bearer ', '');
-  if (!jwt) throw new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
+  if (!jwt) throw json({ error: 'Unauthorized' }, 401);
   const admin = adminClient();
   const { data, error } = await admin.auth.getUser(jwt);
-  if (error || !data.user) throw new Response(JSON.stringify({ error: 'Invalid session' }), { status: 401 });
+  if (error || !data.user) throw json({ error: 'Invalid session' }, 401);
   return { user: data.user, admin };
 }
 
 export const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json', ...corsHeaders },
+  });
 
 // AES-GCM encrypt/decrypt. Key = base64(32 bytes) in CREDENTIAL_ENCRYPTION_KEY.
 // Alternative: Supabase Vault (pgsodium). Either way the key never reaches the browser.

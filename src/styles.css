@@ -24,8 +24,10 @@ a { color: var(--accent); text-decoration: none; }
 .app { min-height: 100vh; }
 .topbar { display: flex; align-items: center; gap: 16px; padding: 12px 20px; background: var(--bg-soft); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 10; flex-wrap: wrap; }
 .brand { font-weight: 800; font-size: 18px; color: var(--text); }
-.topbar nav { display: flex; gap: 12px; flex-wrap: wrap; }
-.topbar nav a { color: var(--muted); font-weight: 600; }
+.topbar nav { display: flex; gap: 4px; flex-wrap: wrap; }
+.topbar nav a.nav-link { color: var(--muted); font-weight: 600; padding: 6px 10px; border-radius: 9px; border: 1px solid transparent; }
+.topbar nav a.nav-link:hover { color: var(--text); background: rgba(128,128,128,0.12); }
+.topbar nav a.nav-link.active { color: var(--text); background: color-mix(in srgb, var(--accent) 18%, transparent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
 .topbar-right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
 .user { color: var(--muted); font-size: 13px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
 main { max-width: 1120px; margin: 0 auto; padding: 20px; }
