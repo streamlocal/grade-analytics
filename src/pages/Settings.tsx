@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../services/api';
 import { supabase } from '../services/supabaseClient';
 import { useAuth } from '../hooks/AuthContext';
-import { Card } from '../components/ui';
+import { Card, SyncHelp } from '../components/ui';
 import { fmtDateTime } from '../utils/format';
 import type { Appearance } from '../App';
 
@@ -32,6 +32,7 @@ export default function Settings({ onNeedsSetup, appearance, onAppearanceChange,
   const [connectionLoading, setConnectionLoading] = useState(true);
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [sessions, setSessions] = useState<{ id: string; created_at: string; last_active?: string; current?: boolean }[]>([]);
   const [lastSync, setLastSync] = useState<string>('—');
 
@@ -55,9 +56,10 @@ export default function Settings({ onNeedsSetup, appearance, onAppearanceChange,
 
   async function run(fn: () => Promise<unknown>, label: string) {
     setBusy(true); setMsg(label + '…');
+    if (label === 'Sync now') setSyncing(true);
     try { await fn(); setMsg(label + ' — done.'); await refresh(); }
     catch (e: unknown) { setMsg(`${label} failed: ${e instanceof Error ? e.message : 'error'}`); }
-    finally { setBusy(false); }
+    finally { setBusy(false); setSyncing(false); }
   }
 
   return (
@@ -99,7 +101,8 @@ export default function Settings({ onNeedsSetup, appearance, onAppearanceChange,
           </div>
           <p className="muted">Your grades refresh automatically each day. Sync now to check for new changes.</p>
           <div className="settings-actions">
-            <button className="btn primary" disabled={busy} onClick={() => run(api.syncNow, 'Sync now')}>Sync now</button>
+            <button className="btn primary" disabled={busy} onClick={() => run(api.syncNow, 'Sync now')}>{syncing ? 'Syncing…' : 'Sync now'}</button>
+            {syncing && <SyncHelp />}
           </div>
         </Card>
 

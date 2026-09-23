@@ -9,6 +9,9 @@ import { delta, deltaClass, fmtDateTime, fmtPct, letterFor, scoreAt, isSubmitted
 import { overallGpa, qualityPoints, effectiveScore } from '../utils/gpa';
 import type { CourseSnapshot } from '../models/types';
 
+type TrendDays = 1 | 7 | 30;
+const trendDays: TrendDays[] = [1, 7, 30];
+
 function useAllSnapshots(courseIds: string[]) {
   const [map, setMap] = useState<Record<string, CourseSnapshot[]>>({});
   useEffect(() => {
@@ -26,6 +29,8 @@ function useAllSnapshots(courseIds: string[]) {
 }
 
 export default function Dashboard() {
+  const [allTrendDays, setAllTrendDays] = useState<TrendDays>(7);
+  const [courseTrendDays, setCourseTrendDays] = useState<Record<string, TrendDays>>({});
   const { courses, loading, error } = useCourses();
   const { assignments } = useAssignments();
   const events = useActivity(20);
@@ -81,14 +86,23 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      <div className="section-heading"><h2>Classes</h2><span className="muted">{tracked.length} tracked</span></div>
+      <div className="section-heading classes-heading">
+        <h2>Classes <span className="muted">{tracked.length} tracked</span></h2>
+        <div className="trend-all-controls" role="group" aria-label="Time range for all classes">
+          <span>All classes</span>
+          {trendDays.map((days) => <button key={days} type="button" className={`trend-all-button ${allTrendDays === days && Object.keys(courseTrendDays).length === 0 ? 'active' : ''}`}
+            aria-pressed={allTrendDays === days && Object.keys(courseTrendDays).length === 0}
+            onClick={() => { setAllTrendDays(days); setCourseTrendDays({}); }}>{days}d</button>)}
+        </div>
+      </div>
       <div className="grid cards">
         {tracked.map((c) => {
           const s = snaps[c.id] ?? [];
           const cur = effectiveScore(c);
-          const d1 = delta(scoreAt(s, 1), cur);
-          const d7 = delta(scoreAt(s, 7), cur);
-          const d30 = delta(scoreAt(s, 30), cur);
+          const selectedDays = courseTrendDays[c.id] ?? allTrendDays;
+          const cutoff = Date.now() - selectedDays * 86400_000;
+          const older = s.filter((point) => new Date(point.created_at).getTime() < cutoff);
+          const chartSnaps = [...older.slice(-1), ...s.filter((point) => new Date(point.created_at).getTime() >= cutoff)];
           const miss = missing.filter((a) => a.course_id === c.id).length;
           return (
             <Card key={c.id} className="course-card">
@@ -96,13 +110,18 @@ export default function Dashboard() {
                 <Link to={`/course/${c.id}`}><strong>{c.name}</strong></Link>
                 <span>{fmtPct(cur)} · {c.current_grade ?? letterFor(cur)} · QP {qualityPoints(cur, c.level ?? 'Regular')?.toFixed(2) ?? '—'}</span>
               </div>
-              <Sparkline points={s.map((x) => x.score)} />
-              <div className="row muted" style={{ fontSize: 13 }}>
-                <span className={deltaClass(d1)}>1d {d1 == null ? '—' : `${d1 > 0 ? '+' : ''}${d1.toFixed(1)}`}</span>
-                <span className={deltaClass(d7)}>7d {d7 == null ? '—' : `${d7 > 0 ? '+' : ''}${d7.toFixed(1)}`}</span>
-                <span className={deltaClass(d30)}>30d {d30 == null ? '—' : `${d30 > 0 ? '+' : ''}${d30.toFixed(1)}`}</span>
-                {miss > 0 && <span style={{ color: 'var(--down)' }}>{miss} missing</span>}
+              <Sparkline points={chartSnaps.map((x) => x.score)} />
+              <div className="course-trend-controls" role="group" aria-label={`${c.name} time range`}>
+                {trendDays.map((days) => {
+                  const change = delta(scoreAt(s, days), cur);
+                  return <button key={days} type="button" className={`trend-choice ${selectedDays === days ? 'active' : ''}`}
+                    aria-pressed={selectedDays === days} aria-label={`Show ${days}-day trend for ${c.name}`}
+                    onClick={() => setCourseTrendDays((current) => ({ ...current, [c.id]: days }))}>
+                    <span>{days}d</span><strong className={deltaClass(change)}>{change == null ? '—' : `${change > 0 ? '+' : ''}${change.toFixed(1)}`}</strong>
+                  </button>;
+                })}
               </div>
+              {miss > 0 && <span className="course-missing">{miss} missing</span>}
             </Card>
           );
         })}

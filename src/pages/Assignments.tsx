@@ -6,7 +6,7 @@ import { isSubmitted } from '../utils/format';
 import type { Assignment } from '../models/types';
 
 type View = 'attention' | 'upcoming' | 'all' | 'graded';
-type Sort = 'due' | 'course' | 'name' | 'score';
+type Sort = 'due' | 'course' | 'name' | 'score' | 'graded';
 
 function dueTime(a: Assignment): number {
   if (!a.due_at) return Number.POSITIVE_INFINITY;
@@ -18,6 +18,11 @@ function compareDue(a: Assignment, b: Assignment): number {
   const first = dueTime(a), second = dueTime(b);
   if (first === second) return a.name.localeCompare(b.name);
   return first === Number.POSITIVE_INFINITY ? 1 : second === Number.POSITIVE_INFINITY ? -1 : first - second;
+}
+
+function historicalGradeTime(a: Assignment): number {
+  const time = new Date(a.submitted_at ?? a.due_at ?? '').getTime();
+  return Number.isFinite(time) ? time : 0;
 }
 
 function dateGroup(a: Assignment, now: number): string {
@@ -76,10 +81,11 @@ function scoreLabel(a: Assignment): string {
 export default function Assignments() {
   const { courses } = useCourses();
   const { assignments, loading, error, reload } = useAssignments();
-  const [view, setView] = useState<View>('attention');
+  const [view, setView] = useState<View | null>(null);
   const [search, setSearch] = useState('');
   const [courseId, setCourseId] = useState('all');
-  const [sort, setSort] = useState<Sort>('due');
+  const [sort, setSort] = useState<Sort | null>(null);
+  const [gradeTimes, setGradeTimes] = useState<Map<string, number>>(new Map());
   const [busyId, setBusyId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -90,6 +96,31 @@ export default function Assignments() {
     const refreshClock = () => { if (document.visibilityState === 'visible') setNow(Date.now()); };
     document.addEventListener('visibilitychange', refreshClock);
     return () => { window.clearInterval(interval); document.removeEventListener('visibilitychange', refreshClock); };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadGradeTimes() {
+      const latest = new Map<string, number>();
+      const pageSize = 1000;
+      for (let offset = 0; ; offset += pageSize) {
+        const { data, error: queryError } = await supabase.from('activity_events')
+          .select('assignment_id,created_at')
+          .in('type', ['ASSIGNMENT_GRADED', 'ASSIGNMENT_SCORE_CHANGED'])
+          .order('created_at', { ascending: false })
+          .range(offset, offset + pageSize - 1);
+        if (cancelled || queryError) return;
+        for (const event of data ?? []) {
+          if (event.assignment_id && !latest.has(event.assignment_id)) {
+            latest.set(event.assignment_id, new Date(event.created_at).getTime());
+          }
+        }
+        if (!data || data.length < pageSize) break;
+      }
+      if (!cancelled) setGradeTimes(latest);
+    }
+    void loadGradeTimes();
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -116,24 +147,35 @@ export default function Assignments() {
     all: assignments.length,
     graded: assignments.filter((a) => a.score != null).length,
   }), [assignments, now]);
+  const selectedView: View = view ?? (counts.attention > 0 ? 'attention' : 'upcoming');
+  const selectedSort: Sort = sort ?? (selectedView === 'graded' ? 'graded' : 'due');
 
   const rows = useMemo(() => assignments.filter((a) => {
-    if (view === 'attention' && !needsAttention(a, now)) return false;
-    if (view === 'upcoming' && !isUpcoming(a, now)) return false;
-    if (view === 'graded' && a.score == null) return false;
+    if (selectedView === 'attention' && !needsAttention(a, now)) return false;
+    if (selectedView === 'upcoming' && !isUpcoming(a, now)) return false;
+    if (selectedView === 'graded' && a.score == null) return false;
     if (courseId !== 'all' && a.course_id !== courseId) return false;
     const query = search.trim().toLocaleLowerCase();
     if (query && !`${a.name} ${courseNames.get(a.course_id) ?? ''} ${a.category ?? ''}`.toLocaleLowerCase().includes(query)) return false;
     return true;
   }).sort((a, b) => {
-    if (sort === 'name') return a.name.localeCompare(b.name);
-    if (sort === 'course') return (courseNames.get(a.course_id) ?? '').localeCompare(courseNames.get(b.course_id) ?? '') || compareDue(a, b);
-    if (sort === 'score') return (b.score == null ? -1 : b.points_possible ? b.score / b.points_possible : b.score) - (a.score == null ? -1 : a.points_possible ? a.score / a.points_possible : a.score);
+    if (selectedSort === 'graded') {
+      const aObserved = gradeTimes.get(a.id);
+      const bObserved = gradeTimes.get(b.id);
+      if (aObserved != null && bObserved == null) return -1;
+      if (bObserved != null && aObserved == null) return 1;
+      const aTime = aObserved ?? historicalGradeTime(a);
+      const bTime = bObserved ?? historicalGradeTime(b);
+      return bTime - aTime || a.name.localeCompare(b.name);
+    }
+    if (selectedSort === 'name') return a.name.localeCompare(b.name);
+    if (selectedSort === 'course') return (courseNames.get(a.course_id) ?? '').localeCompare(courseNames.get(b.course_id) ?? '') || compareDue(a, b);
+    if (selectedSort === 'score') return (b.score == null ? -1 : b.points_possible ? b.score / b.points_possible : b.score) - (a.score == null ? -1 : a.points_possible ? a.score / a.points_possible : a.score);
     return compareDue(a, b);
-  }), [assignments, view, courseId, search, sort, courseNames, now]);
+  }), [assignments, selectedView, courseId, search, selectedSort, courseNames, now, gradeTimes]);
 
   const groups = useMemo(() => {
-    if (sort !== 'due' || view === 'graded') return [{ label: '', items: rows }];
+    if (selectedSort !== 'due' || selectedView === 'graded') return [{ label: '', items: rows }];
     const grouped = new Map<string, Assignment[]>();
     for (const a of rows) {
       const label = dateGroup(a, now);
@@ -143,7 +185,7 @@ export default function Assignments() {
     return ['Past due', 'Today', 'Tomorrow', 'Next 7 days', 'Later', 'No due date']
       .filter((label) => grouped.has(label))
       .map((label) => ({ label, items: grouped.get(label) ?? [] }));
-  }, [rows, sort, view, now]);
+  }, [rows, selectedSort, selectedView, now]);
 
   function exportCsv() {
     const headers = ['Assignment', 'Course', 'Category', 'Due', 'Score', 'Points possible', 'Status', 'Canvas URL'];
@@ -190,8 +232,8 @@ export default function Assignments() {
 
       <div className="assignment-tabs" role="group" aria-label="Assignment views">
         {tabs.map((tab) => (
-          <button key={tab.id} type="button" aria-pressed={view === tab.id}
-            className={`assignment-tab ${view === tab.id ? 'active' : ''}`} onClick={() => setView(tab.id)}>
+          <button key={tab.id} type="button" aria-pressed={selectedView === tab.id}
+            className={`assignment-tab ${selectedView === tab.id ? 'active' : ''}`} onClick={() => { setView(tab.id); setSort(null); }}>
             {tab.label}<span className="assignment-count">{counts[tab.id]}</span>
           </button>
         ))}
@@ -208,7 +250,8 @@ export default function Assignments() {
           </select>
         </label>
         <label>Sort by
-          <select value={sort} onChange={(e) => setSort(e.target.value as Sort)}>
+          <select value={selectedSort} onChange={(e) => setSort(e.target.value as Sort)}>
+            {selectedView === 'graded' && <option value="graded">Most recently graded</option>}
             <option value="due">Due date</option>
             <option value="course">Course</option>
             <option value="name">Name</option>
@@ -225,8 +268,8 @@ export default function Assignments() {
       {error && <div className="error" role="alert">Assignments could not load: {error} <button type="button" className="btn" onClick={reload}>Try again</button></div>}
 
       {loading ? <Skeleton lines={5} /> : error ? null : rows.length === 0 ? (
-        <Empty title={view === 'attention' ? 'Nothing needs attention' : 'No assignments found'}
-          hint={search || courseId !== 'all' ? 'Try a different search or clear your filters.' : view === 'upcoming' ? 'No open assignments are due in the next 14 days.' : 'Assignments will appear here after a Canvas sync.'} />
+        <Empty title={selectedView === 'attention' ? 'Nothing needs attention' : 'No assignments found'}
+          hint={search || courseId !== 'all' ? 'Try a different search or clear your filters.' : selectedView === 'upcoming' ? 'No open assignments are due in the next 14 days.' : 'Assignments will appear here after a Canvas sync.'} />
       ) : (
         <div className="assignment-groups">
           {groups.map((group) => <section key={group.label || 'all'} className="assignment-group">

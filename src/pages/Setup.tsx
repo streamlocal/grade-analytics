@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api } from '../services/api';
+import { SyncHelp } from '../components/ui';
 
 const DEFAULT_BASE = 'https://saintignatius.instructure.com';
 
@@ -11,6 +12,7 @@ export default function Setup({ onDone }: { onDone: () => void }) {
   const [selected, setSelected] = useState<string[]>([]);
   const [step, setStep] = useState(1);
   const [busy, setBusy] = useState(false);
+  const [firstSyncing, setFirstSyncing] = useState(false);
 
   async function saveAndTest() {
     setBusy(true); setStatus('Saving encrypted credential…');
@@ -35,13 +37,14 @@ export default function Setup({ onDone }: { onDone: () => void }) {
     setBusy(true); setStatus('Saving selection…');
     try {
       await api.setTracked(selected);
+      setFirstSyncing(true);
       setStatus('Running first sync: Connecting → Fetching courses → Fetching assignments → Comparing → Updating history…');
       await api.syncNow();
       setStatus('First sync complete. Opening dashboard…');
       setTimeout(onDone, 800);
     } catch (e: unknown) {
       setStatus(`Sync error: ${e instanceof Error ? e.message : 'failed'}. Previous data (if any) was kept.`);
-    } finally { setBusy(false); }
+    } finally { setBusy(false); setFirstSyncing(false); }
   }
 
   return (
@@ -73,7 +76,11 @@ export default function Setup({ onDone }: { onDone: () => void }) {
                 {c.name}
               </label>
             ))}
-            <button className="btn primary" disabled={busy || !selected.length} onClick={firstSync}>Run first sync</button>
+            <p className="muted sync-setup-note">The first sync downloads your selected Canvas courses and assignments. It may take several minutes.</p>
+            <div className="row sync-setup-actions">
+              <button className="btn primary" disabled={busy || !selected.length} onClick={firstSync}>{firstSyncing ? 'Syncing…' : 'Run first sync'}</button>
+              {firstSyncing && <SyncHelp first />}
+            </div>
           </>
         )}
       </div>
