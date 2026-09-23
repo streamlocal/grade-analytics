@@ -148,6 +148,33 @@ Normalized into `NormCourse` / `NormAssignment` / `NormCategory` so other LMS pr
 | GitHub repo secrets | `SUPABASE_URL`, `CRON_SECRET` | backup daily-sync trigger |
 | Supabase → Project Settings → API | `anon` (public) + `service_role` (server only) | anon is safe to expose; service_role is not |
 
+## Publishing to both targets — access checklist
+
+There are **two** publish targets. Give the next AI the following:
+
+**1. GitHub (publishes the website)**
+- A **fine-grained GitHub PAT** scoped to `streamlocal/grade-analytics` with:
+  `Contents: Read and write`, `Actions: Read and write`, `Pages: Read and write`
+  (or a classic token with `repo` + `workflow`).
+- Pushing to `main` is what publishes: `deploy-pages.yml` runs tests + build + `actions/deploy-pages`.
+  No manual Pages step is needed.
+- `gh auth login --with-token` or `git remote` with the token works.
+
+**2. Supabase (publishes the backend)**
+- A **Supabase Personal Access Token** (`sbp_…`, from Supabase → Account → Access Tokens).
+  Enough for: `supabase functions deploy …`, `supabase secrets set …`, and running SQL via the
+  Management API (`POST https://api.supabase.com/v1/projects/htyloqknzbovojsijamf/database/query`).
+- `supabase link --project-ref htyloqknzbovojsijamf` may prompt for the **database password**;
+  alternatively apply migrations through the Management API SQL endpoint (no DB password required).
+- Deploying functions needs **no** Docker and **no** DB password — only the access token + project ref.
+
+**Tooling on the previous machine** (may need reinstalling elsewhere): Node and the Supabase CLI were
+installed under `~/.local/ga-tools/` (outside the repo). `npm`, `supabase`, `gh`, `git` are the only tools used.
+
+> **Do NOT change `CREDENTIAL_ENCRYPTION_KEY`** unless you also re-connect Canvas. The stored Canvas
+> token is encrypted with the current key; a new key makes it undecryptable. Supabase secrets are
+> write-only (you cannot read the existing value back), so leave it alone unless rotating deliberately.
+
 ## Known caveats / follow-ups
 
 - Canvas token: rotate it (it was shared in plaintext during setup). Re-enter via Setup → Save & test.
