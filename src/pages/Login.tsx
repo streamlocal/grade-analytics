@@ -32,10 +32,11 @@ export default function Login() {
   }
 
   return (
-    <main>
-      <div className="card form">
+    <main className="auth-page">
+      <div className="auth-intro"><span className="auth-mark" aria-hidden="true"><i /><i /><i /><i /></span><span>GRADE ANALYTICS</span></div>
+      <div className="card form auth-card">
         <h1>Grade Analytics</h1>
-        <p className="muted">Private dashboard. Sign in once per device — your session persists until you log out.</p>
+        <p className="muted">Your grades, courses, and progress in one place.</p>
         <form onSubmit={submit}>
           <label>Email
             <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
@@ -49,7 +50,7 @@ export default function Login() {
               onChange={(e) => { void setRemember(e.target.checked); }} />
             Remember this device (default ON)
           </label>
-          <div className="row">
+          <div className="row auth-actions">
             <button className="btn primary" disabled={busy}>
               {busy ? 'Working…' : mode === 'signin' ? 'Sign in' : 'Create account'}
             </button>
@@ -58,8 +59,13 @@ export default function Login() {
             </button>
           </div>
         </form>
-        {msg && <p className="muted">{msg}</p>}
-        <p className="muted" style={{ fontSize: 12 }}>School: Canvas — saintignatius.instructure.com. Your Canvas token is stored encrypted server-side only.</p>
+        {msg && <p className="muted" role="status">{msg}</p>}
+        <p className="muted auth-help">
+          School: Canvas — saintignatius.instructure.com. To create a Canvas API token, open{' '}
+          <a href="https://saintignatius.instructure.com/profile/settings" target="_blank" rel="noreferrer">
+            Canvas Profile Settings
+          </a>.
+        </p>
       </div>
     </main>
   );

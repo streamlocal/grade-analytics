@@ -45,14 +45,22 @@ export default function Setup({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <main>
-      <div className="card form">
+    <main className="auth-page">
+      <div className="auth-intro"><span className="auth-mark" aria-hidden="true"><i /><i /><i /><i /></span><span>GRADE ANALYTICS</span></div>
+      <div className="card form auth-card">
         <h2>Welcome — connect Canvas</h2>
-        <p className="muted">{status}</p>
+        <p className="muted" role="status">{status}</p>
         {step === 1 && (
           <>
             <label>Canvas URL<input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={DEFAULT_BASE} /></label>
             <label>API token (sent to Edge Function, encrypted at rest, never stored in browser)<input type="password" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" /></label>
+            <p className="muted auth-help">
+              Need a token? Open{' '}
+              <a href="https://saintignatius.instructure.com/profile/settings" target="_blank" rel="noreferrer">
+                Canvas Profile Settings
+              </a>{' '}
+              and create an access token.
+            </p>
             <button className="btn primary" disabled={busy || !token} onClick={saveAndTest}>Save &amp; test connection</button>
           </>
         )}

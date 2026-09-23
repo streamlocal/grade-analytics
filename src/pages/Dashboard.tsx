@@ -33,10 +33,13 @@ export default function Dashboard() {
   const tracked = useMemo(() => courses.filter((c) => c.tracked), [courses]);
   const snaps = useAllSnapshots(tracked.map((c) => c.id));
 
-  const dueSoon = assignments.filter((a) => a.due_at && !a.excused && a.score == null &&
-    new Date(a.due_at).getTime() > Date.now() && new Date(a.due_at).getTime() < Date.now() + 7 * 86400_000);
-  const missing = assignments.filter((a) => a.missing && !isSubmitted(a));
-  const recentGraded = [...assignments].filter((a) => a.score != null).slice(0, 5);
+  const dueSoon = assignments.filter((a) => a.due_at && !a.excused && a.score == null && !isSubmitted(a) &&
+    new Date(a.due_at).getTime() > Date.now() && new Date(a.due_at).getTime() < Date.now() + 7 * 86400_000)
+    .sort((a, b) => (a.due_at ?? '').localeCompare(b.due_at ?? ''));
+  const missing = assignments.filter((a) => a.missing && !a.excused && !isSubmitted(a));
+  const needsAttention = assignments.filter((a) => !a.excused && !isSubmitted(a) &&
+    (a.missing || (a.score == null && a.due_at != null && new Date(a.due_at).getTime() < Date.now())));
+  const graded = assignments.filter((a) => a.score != null);
   const scored = tracked.map((c) => effectiveScore(c)).filter((v): v is number => v != null);
   const avg = scored.length ? scored.reduce((a, b) => a + b, 0) / scored.length : null;
   const gpa = overallGpa(tracked.map((c) => ({ score: effectiveScore(c), level: c.level ?? 'Regular' })));
@@ -46,18 +49,39 @@ export default function Dashboard() {
   if (!tracked.length) return <main><Empty title="No tracked courses yet" hint="Go to Settings → Connection to discover courses and run your first sync." /></main>;
 
   return (
-    <main>
-      <div className="grid stats">
+    <main className="dashboard-page">
+      <div className="page-heading"><div><p className="eyebrow">Overview</p><h1>Dashboard</h1><p className="page-subtitle">Your Canvas grades at a glance</p></div><span className="heading-meta">Last sync {fmtDateTime(lastSync?.started_at)}</span></div>
+      <div className="grid stats dashboard-stats">
         <Card><div className="stat"><div className="l">Overall average</div><div className="v">{fmtPct(avg)}</div></div></Card>
         <Card><div className="stat"><div className="l">GPA (Ignatius scale)</div><div className="v">{gpa == null ? '—' : gpa.toFixed(2)}</div></div></Card>
         <Card><div className="stat"><div className="l">Tracked classes</div><div className="v">{tracked.length}</div></div></Card>
         <Card><div className="stat"><div className="l">Due soon</div><div className="v">{dueSoon.length}</div></div></Card>
-        <Card><div className="stat"><div className="l">Missing</div><div className="v">{missing.length}</div></div></Card>
-        <Card><div className="stat"><div className="l">Recently graded</div><div className="v">{recentGraded.length}</div></div></Card>
-        <Card><div className="stat"><div className="l">Last sync</div><div className="v" style={{ fontSize: 15 }}>{fmtDateTime(lastSync?.started_at)}</div></div></Card>
+        <Card><div className="stat"><div className="l">Needs attention</div><div className="v">{needsAttention.length}</div></div></Card>
+        <Card><div className="stat"><div className="l">Graded assignments</div><div className="v">{graded.length}</div></div></Card>
       </div>
 
-      <h2>Classes</h2>
+      <div className="dashboard-priority">
+        <Card>
+          <div className="priority-heading"><h2>Needs attention</h2><Link to="/assignments">View assignments ↗</Link></div>
+          {needsAttention.length ? needsAttention.slice(0, 3).map((a) => (
+            <div className="priority-item" key={a.id}>
+              <span><strong>{a.name}</strong><small>{tracked.find((c) => c.id === a.course_id)?.name ?? 'Course'}</small></span>
+              <span className="status-pill danger">{a.missing ? 'Missing' : 'Overdue'}</span>
+            </div>
+          )) : <p className="muted priority-empty">You’re caught up.</p>}
+        </Card>
+        <Card>
+          <div className="priority-heading"><h2>Due soon</h2><Link to="/assignments">View assignments ↗</Link></div>
+          {dueSoon.length ? dueSoon.slice(0, 3).map((a) => (
+            <div className="priority-item" key={a.id}>
+              <span><strong>{a.name}</strong><small>{tracked.find((c) => c.id === a.course_id)?.name ?? 'Course'}</small></span>
+              <span className="priority-date">{new Date(a.due_at!).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+            </div>
+          )) : <p className="muted priority-empty">No open assignments due this week.</p>}
+        </Card>
+      </div>
+
+      <div className="section-heading"><h2>Classes</h2><span className="muted">{tracked.length} tracked</span></div>
       <div className="grid cards">
         {tracked.map((c) => {
           const s = snaps[c.id] ?? [];
@@ -67,8 +91,8 @@ export default function Dashboard() {
           const d30 = delta(scoreAt(s, 30), cur);
           const miss = missing.filter((a) => a.course_id === c.id).length;
           return (
-            <Card key={c.id}>
-              <div className="row" style={{ justifyContent: 'space-between' }}>
+            <Card key={c.id} className="course-card">
+              <div className="row course-card-top" style={{ justifyContent: 'space-between' }}>
                 <Link to={`/course/${c.id}`}><strong>{c.name}</strong></Link>
                 <span>{fmtPct(cur)} · {c.current_grade ?? letterFor(cur)} · QP {qualityPoints(cur, c.level ?? 'Regular')?.toFixed(2) ?? '—'}</span>
               </div>
@@ -84,7 +108,7 @@ export default function Dashboard() {
         })}
       </div>
 
-      <h2>Activity</h2>
+      <div className="section-heading"><h2>Activity</h2></div>
       <div className="feed">
         {events.length === 0 && <Empty title="No activity yet" hint="Sync twice and changes will appear here." />}
         {events.map((e) => (

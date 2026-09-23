@@ -14,16 +14,51 @@ import WhatIf from './pages/WhatIf';
 import Compare from './pages/Compare';
 import Settings from './pages/Settings';
 
+export type Appearance = 'current' | 'old' | 'glass' | 'paper';
+
+function savedAppearance(): Appearance {
+  const value = localStorage.getItem('ga-appearance') ?? localStorage.getItem('ga-theme');
+  if (value === 'old' || value === 'dark') return 'old';
+  if (value === 'glass' || value === 'paper') return value;
+  return 'current';
+}
+
 function Shell() {
   const { session, loading } = useAuth();
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
   const [syncing, setSyncing] = useState(false);
-  const [theme, setTheme] = useState(localStorage.getItem('ga-theme') ?? 'dark');
+  const [appearance, setAppearance] = useState<Appearance>(savedAppearance);
+  const [appearanceError, setAppearanceError] = useState('');
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    localStorage.setItem('ga-theme', theme);
-  }, [theme]);
+    document.documentElement.dataset.appearance = appearance;
+    localStorage.setItem('ga-appearance', appearance);
+  }, [appearance]);
+
+  useEffect(() => {
+    if (!session) return;
+    let active = true;
+    const userId = session.user.id;
+    void supabase.from('user_settings').select('appearance').eq('user_id', userId).maybeSingle()
+      .then(({ data, error }) => {
+        if (!active) return;
+        if (error) { setAppearanceError('Appearance could not be loaded from your account.'); return; }
+        if (data?.appearance && ['current', 'old', 'glass', 'paper'].includes(data.appearance)) {
+          setAppearance(data.appearance as Appearance);
+        }
+      });
+    return () => { active = false; };
+  }, [session?.user.id]);
+
+  async function changeAppearance(next: Appearance) {
+    setAppearance(next);
+    setAppearanceError('');
+    if (!session) return;
+    const { error } = await supabase.from('user_settings').upsert(
+      { user_id: session.user.id, appearance: next }, { onConflict: 'user_id' },
+    );
+    if (error) setAppearanceError('Saved on this device, but could not sync to your account.');
+  }
 
   const checkSetup = useCallback(async () => {
     if (!session) { setNeedsSetup(null); return; }
@@ -51,22 +86,22 @@ function Shell() {
   if (needsSetup) return <Setup onDone={() => setNeedsSetup(false)} />;
 
   return (
-    <>
+    <div className="workspace">
       <TopBar onSync={syncNow} syncing={syncing} />
-      <Routes>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/course/:id" element={<CourseDetail />} />
-        <Route path="/history" element={<History />} />
-        <Route path="/assignments" element={<Assignments />} />
-        <Route path="/what-if" element={<WhatIf />} />
-        <Route path="/compare" element={<Compare />} />
-        <Route path="/settings" element={<Settings onNeedsSetup={() => setNeedsSetup(true)} />} />
-        <Route path="*" element={<Navigate to="/" />} />
-      </Routes>
-      <button className="btn ghost theme-toggle" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
-        {theme === 'dark' ? 'Light mode' : 'Dark mode'}
-      </button>
-    </>
+      <div className="workspace-main">
+        <Routes>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/course/:id" element={<CourseDetail />} />
+          <Route path="/history" element={<History />} />
+          <Route path="/assignments" element={<Assignments />} />
+          <Route path="/what-if" element={<WhatIf />} />
+          <Route path="/compare" element={<Compare />} />
+          <Route path="/settings" element={<Settings onNeedsSetup={() => setNeedsSetup(true)} appearance={appearance}
+            onAppearanceChange={changeAppearance} appearanceError={appearanceError} />} />
+          <Route path="*" element={<Navigate to="/" />} />
+        </Routes>
+      </div>
+    </div>
   );
 }
 

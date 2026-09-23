@@ -30,8 +30,12 @@ export function TopBar({ onSync, syncing }: { onSync: () => void; syncing: boole
   ];
   return (
     <header className="topbar">
-      <a className="brand" href="#/">Grade Analytics</a>
-      <nav>
+      <a className="brand" href="#/" aria-label="Grade Analytics dashboard">
+        <span className="brand-mark" aria-hidden="true"><i /><i /><i /><i /></span>
+        <span className="brand-copy"><strong>Grade Analytics</strong><small>Canvas workspace</small></span>
+      </a>
+      <div className="nav-heading">Workspace</div>
+      <nav aria-label="Main navigation">
         {links.map((l) => (
           <NavLink key={l.to} to={l.to} end={l.end}
             className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}>
@@ -40,11 +44,11 @@ export function TopBar({ onSync, syncing }: { onSync: () => void; syncing: boole
         ))}
       </nav>
       <div className="topbar-right">
-        <button className="btn primary" onClick={onSync} disabled={syncing}>
-          {syncing ? 'Syncing…' : 'Sync Now'}
+        <button className="btn primary sync-button" onClick={onSync} disabled={syncing}>
+          {syncing ? 'Syncing…' : 'Sync now'}
         </button>
-        <span className="user" title={user?.email}>{user?.email?.split('@')[0]}</span>
-        <button className="btn ghost" onClick={signOut}>Logout</button>
+        <span className="user" title={user?.email}>{user?.email}</span>
+        <button className="btn ghost" onClick={signOut}>Sign out</button>
       </div>
     </header>
   );

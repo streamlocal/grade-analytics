@@ -1,112 +1,272 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { useAssignments, useCourses } from '../hooks/useData';
-import { Card } from '../components/ui';
+import { Empty, Skeleton } from '../components/ui';
 import { isSubmitted } from '../utils/format';
 import type { Assignment } from '../models/types';
 
-function statusOf(a: Assignment): string {
-  if (a.excused) return 'Excused';
-  if (isSubmitted(a)) return a.score == null ? 'Submitted' : 'Graded';
-  if (a.missing) return 'Missing';
-  if (a.late) return 'Late';
-  return 'Unsubmitted';
+type View = 'attention' | 'upcoming' | 'all' | 'graded';
+type Sort = 'due' | 'course' | 'name' | 'score';
+
+function dueTime(a: Assignment): number {
+  if (!a.due_at) return Number.POSITIVE_INFINITY;
+  const time = new Date(a.due_at).getTime();
+  return Number.isFinite(time) ? time : Number.POSITIVE_INFINITY;
 }
 
-function SubmittedToggle({ a, onSaved }: { a: Assignment; onSaved: () => void }) {
-  const submitted = isSubmitted(a);
-  const manual = a.submitted_override != null;
-  async function toggle() {
-    await supabase.from('assignments').update({ submitted_override: !submitted }).eq('id', a.id);
-    onSaved();
-  }
-  async function reset() {
-    await supabase.from('assignments').update({ submitted_override: null }).eq('id', a.id);
-    onSaved();
-  }
-  return (
-    <span className="row" style={{ gap: 4 }}>
-      <button className={`chip ${submitted ? 'chip-on' : ''}`} onClick={toggle}
-        title={manual ? 'Manually set — click to toggle' : 'From Canvas — click to override'}>
-        {submitted ? '✓ Submitted' : 'Not submitted'}
-      </button>
-      {manual && <button className="btn ghost" style={{ padding: '2px 8px' }} onClick={reset} title="Reset to Canvas">↺</button>}
-    </span>
-  );
+function compareDue(a: Assignment, b: Assignment): number {
+  const first = dueTime(a), second = dueTime(b);
+  if (first === second) return a.name.localeCompare(b.name);
+  return first === Number.POSITIVE_INFINITY ? 1 : second === Number.POSITIVE_INFINITY ? -1 : first - second;
+}
+
+function dateGroup(a: Assignment, now: number): string {
+  const due = dueTime(a);
+  if (due === Number.POSITIVE_INFINITY) return 'No due date';
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  const today = start.getTime();
+  if (due < today) return 'Past due';
+  if (due < today + 86400_000) return 'Today';
+  if (due < today + 2 * 86400_000) return 'Tomorrow';
+  if (due < today + 7 * 86400_000) return 'Next 7 days';
+  return 'Later';
+}
+
+function csvCell(value: string): string {
+  const safe = /^[=+\-@]/.test(value) ? `'${value}` : value;
+  return `"${safe.replace(/"/g, '""')}"`;
+}
+
+function isOpen(a: Assignment): boolean {
+  return !a.excused && a.score == null && !isSubmitted(a);
+}
+
+function needsAttention(a: Assignment, now: number): boolean {
+  return !a.excused && !isSubmitted(a) && (a.missing || (a.score == null && dueTime(a) < now));
+}
+
+function isUpcoming(a: Assignment, now: number): boolean {
+  const due = dueTime(a);
+  return isOpen(a) && due >= now && due <= now + 14 * 86400_000;
+}
+
+function statusOf(a: Assignment, now: number): { label: string; tone: string } {
+  if (a.excused) return { label: 'Excused', tone: 'neutral' };
+  if (a.missing && !isSubmitted(a)) return { label: 'Missing', tone: 'danger' };
+  if (a.score != null) return { label: 'Graded', tone: 'success' };
+  if (isSubmitted(a)) return { label: 'Submitted', tone: 'success' };
+  if (dueTime(a) < now) return { label: 'Overdue', tone: 'danger' };
+  if (a.late) return { label: 'Late', tone: 'warning' };
+  return { label: 'To do', tone: 'info' };
+}
+
+function dueLabel(a: Assignment): string {
+  if (!a.due_at) return 'No due date';
+  const date = new Date(a.due_at);
+  if (Number.isNaN(date.getTime())) return 'No due date';
+  return date.toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+function scoreLabel(a: Assignment): string {
+  if (a.score == null) return a.points_possible == null ? 'Not graded' : `Out of ${a.points_possible} pts`;
+  return `${a.score} / ${a.points_possible ?? '—'} pts`;
 }
 
 export default function Assignments() {
   const { courses } = useCourses();
-  const { assignments, reload } = useAssignments();
-  const [course, setCourse] = useState('all');
-  const [filter, setFilter] = useState('all');
-  const [sort, setSort] = useState<'due' | 'score' | 'name'>('due');
+  const { assignments, loading, error, reload } = useAssignments();
+  const [view, setView] = useState<View>('attention');
+  const [search, setSearch] = useState('');
+  const [courseId, setCourseId] = useState('all');
+  const [sort, setSort] = useState<Sort>('due');
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [now, setNow] = useState(() => Date.now());
 
-  const cname = useMemo(() => Object.fromEntries(courses.map((c) => [c.id, c.name])), [courses]);
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 60_000);
+    const refreshClock = () => { if (document.visibilityState === 'visible') setNow(Date.now()); };
+    document.addEventListener('visibilitychange', refreshClock);
+    return () => { window.clearInterval(interval); document.removeEventListener('visibilitychange', refreshClock); };
+  }, []);
 
-  const rows = assignments.filter((a) => {
-    if (course !== 'all' && a.course_id !== course) return false;
-    if (filter === 'missing' && !(a.missing && !isSubmitted(a))) return false;
-    if (filter === 'late' && !a.late) return false;
-    if (filter === 'ungraded' && a.score != null) return false;
-    if (filter === 'graded' && a.score == null) return false;
-    if (filter === 'unsubmitted' && (isSubmitted(a) || a.excused)) return false;
-    if (filter === 'submitted' && !isSubmitted(a)) return false;
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      const editing = target?.matches('input, select, textarea, [contenteditable="true"]');
+      if (event.key === '/' && !editing && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        event.preventDefault();
+        searchRef.current?.focus();
+      }
+      if (event.key === 'Escape' && target === searchRef.current) {
+        setSearch('');
+        searchRef.current?.blur();
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  const courseNames = useMemo(() => new Map(courses.map((c) => [c.id, c.name])), [courses]);
+  const counts = useMemo(() => ({
+    attention: assignments.filter((a) => needsAttention(a, now)).length,
+    upcoming: assignments.filter((a) => isUpcoming(a, now)).length,
+    all: assignments.length,
+    graded: assignments.filter((a) => a.score != null).length,
+  }), [assignments, now]);
+
+  const rows = useMemo(() => assignments.filter((a) => {
+    if (view === 'attention' && !needsAttention(a, now)) return false;
+    if (view === 'upcoming' && !isUpcoming(a, now)) return false;
+    if (view === 'graded' && a.score == null) return false;
+    if (courseId !== 'all' && a.course_id !== courseId) return false;
+    const query = search.trim().toLocaleLowerCase();
+    if (query && !`${a.name} ${courseNames.get(a.course_id) ?? ''} ${a.category ?? ''}`.toLocaleLowerCase().includes(query)) return false;
     return true;
   }).sort((a, b) => {
     if (sort === 'name') return a.name.localeCompare(b.name);
-    if (sort === 'score') {
-      const pa = a.score != null && a.points_possible ? a.score / a.points_possible : -1;
-      const pb = b.score != null && b.points_possible ? b.score / b.points_possible : -1;
-      return pb - pa;
+    if (sort === 'course') return (courseNames.get(a.course_id) ?? '').localeCompare(courseNames.get(b.course_id) ?? '') || compareDue(a, b);
+    if (sort === 'score') return (b.score == null ? -1 : b.points_possible ? b.score / b.points_possible : b.score) - (a.score == null ? -1 : a.points_possible ? a.score / a.points_possible : a.score);
+    return compareDue(a, b);
+  }), [assignments, view, courseId, search, sort, courseNames, now]);
+
+  const groups = useMemo(() => {
+    if (sort !== 'due' || view === 'graded') return [{ label: '', items: rows }];
+    const grouped = new Map<string, Assignment[]>();
+    for (const a of rows) {
+      const label = dateGroup(a, now);
+      if (!grouped.has(label)) grouped.set(label, []);
+      grouped.get(label)?.push(a);
     }
-    return (a.due_at ?? '9999').localeCompare(b.due_at ?? '9999');
-  });
+    return ['Past due', 'Today', 'Tomorrow', 'Next 7 days', 'Later', 'No due date']
+      .filter((label) => grouped.has(label))
+      .map((label) => ({ label, items: grouped.get(label) ?? [] }));
+  }, [rows, sort, view, now]);
+
+  function exportCsv() {
+    const headers = ['Assignment', 'Course', 'Category', 'Due', 'Score', 'Points possible', 'Status', 'Canvas URL'];
+    const records = rows.map((a) => [
+      a.name, courseNames.get(a.course_id) ?? '', a.category ?? '', a.due_at ?? '',
+      a.score?.toString() ?? '', a.points_possible?.toString() ?? '', statusOf(a, now).label, a.html_url ?? '',
+    ]);
+    const csv = [headers, ...records].map((record) => record.map(csvCell).join(',')).join('\r\n');
+    const url = URL.createObjectURL(new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'grade-analytics-assignments.csv';
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  async function setSubmission(a: Assignment, value: boolean | null) {
+    setBusyId(a.id);
+    setMessage(null);
+    try {
+      const { error: updateError } = await supabase.from('assignments')
+        .update({ submitted_override: value }).eq('id', a.id);
+      if (updateError) throw updateError;
+      reload();
+    } catch (caught: unknown) {
+      setMessage(caught instanceof Error ? caught.message : 'Could not update this assignment. Try again.');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const tabs: { id: View; label: string }[] = [
+    { id: 'attention', label: 'Needs attention' },
+    { id: 'upcoming', label: 'Due soon' },
+    { id: 'all', label: 'All assignments' },
+    { id: 'graded', label: 'Graded' },
+  ];
 
   return (
-    <main>
-      <h2>Assignments</h2>
-      <div className="toolbar">
-        <select value={course} onChange={(e) => setCourse(e.target.value)} style={{ maxWidth: 220 }}>
-          <option value="all">All courses</option>
-          {courses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
-        <select value={filter} onChange={(e) => setFilter(e.target.value)} style={{ maxWidth: 200 }}>
-          <option value="all">All statuses</option>
-          <option value="unsubmitted">Unsubmitted</option>
-          <option value="submitted">Submitted</option>
-          <option value="missing">Missing</option>
-          <option value="late">Late</option>
-          <option value="ungraded">Ungraded</option>
-          <option value="graded">Graded</option>
-        </select>
-        <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} style={{ maxWidth: 160 }}>
-          <option value="due">Sort: due date</option>
-          <option value="score">Sort: score</option>
-          <option value="name">Sort: name</option>
-        </select>
-        <span className="muted" style={{ fontSize: 13 }}>{rows.length} shown</span>
+    <main className="assignments-page">
+      <div className="page-heading">
+        <div><p className="eyebrow">Coursework</p><h1>Assignments</h1><p className="page-subtitle">Find what is due and keep your submission status organized.</p></div>
       </div>
-      <Card>
-        <table className="data">
-          <thead><tr><th>Assignment</th><th>Course</th><th>Category</th><th>Due</th><th>Score</th><th>%</th><th>Status</th><th>Submitted</th></tr></thead>
-          <tbody>
-            {rows.map((a) => (
-              <tr key={a.id}>
-                <td>{a.name}</td>
-                <td>{cname[a.course_id] ?? '—'}</td>
-                <td>{a.category ?? '—'}</td>
-                <td>{a.due_at ? new Date(a.due_at).toLocaleDateString() : '—'}</td>
-                <td>{a.score == null ? '—' : `${a.score}/${a.points_possible}`}</td>
-                <td>{a.score != null && a.points_possible ? `${((a.score / a.points_possible) * 100).toFixed(1)}%` : '—'}</td>
-                <td>{statusOf(a)}</td>
-                <td><SubmittedToggle a={a} onSaved={reload} /></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {rows.length === 0 && <p className="muted" style={{ padding: 12 }}>No assignments match these filters.</p>}
-      </Card>
+
+      <div className="assignment-tabs" role="group" aria-label="Assignment views">
+        {tabs.map((tab) => (
+          <button key={tab.id} type="button" aria-pressed={view === tab.id}
+            className={`assignment-tab ${view === tab.id ? 'active' : ''}`} onClick={() => setView(tab.id)}>
+            {tab.label}<span className="assignment-count">{counts[tab.id]}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="assignment-controls">
+        <label className="assignment-search">Search assignments
+          <input ref={searchRef} type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Name, class, or category" />
+        </label>
+        <label>Course
+          <select value={courseId} onChange={(e) => setCourseId(e.target.value)}>
+            <option value="all">All courses</option>
+            {courses.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </label>
+        <label>Sort by
+          <select value={sort} onChange={(e) => setSort(e.target.value as Sort)}>
+            <option value="due">Due date</option>
+            <option value="course">Course</option>
+            <option value="name">Name</option>
+            <option value="score">Score</option>
+          </select>
+        </label>
+      </div>
+
+      <div className="assignment-results"><strong>{rows.length}</strong> {rows.length === 1 ? 'assignment' : 'assignments'} shown
+        {(search || courseId !== 'all') && <button type="button" className="btn ghost" onClick={() => { setSearch(''); setCourseId('all'); }}>Clear filters</button>}
+        <button type="button" className="btn assignment-export" disabled={!rows.length} onClick={exportCsv}>Export CSV</button>
+      </div>
+      {message && <div className="error" role="alert">{message}</div>}
+      {error && <div className="error" role="alert">Assignments could not load: {error} <button type="button" className="btn" onClick={reload}>Try again</button></div>}
+
+      {loading ? <Skeleton lines={5} /> : error ? null : rows.length === 0 ? (
+        <Empty title={view === 'attention' ? 'Nothing needs attention' : 'No assignments found'}
+          hint={search || courseId !== 'all' ? 'Try a different search or clear your filters.' : view === 'upcoming' ? 'No open assignments are due in the next 14 days.' : 'Assignments will appear here after a Canvas sync.'} />
+      ) : (
+        <div className="assignment-groups">
+          {groups.map((group) => <section key={group.label || 'all'} className="assignment-group">
+          {group.label ? <h2 className="assignment-group-title">{group.label}<span>{group.items.length}</span></h2> : <h2 className="sr-only">Assignments list</h2>}
+          <div className="assignment-list">{group.items.map((a) => {
+            const status = statusOf(a, now);
+            const submitted = isSubmitted(a);
+            return (
+              <article key={a.id} className="assignment-item">
+                <div className="assignment-main">
+                  <div className="assignment-title-row">
+                    <h3>{a.html_url ? <a href={a.html_url} target="_blank" rel="noreferrer">{a.name}</a> : a.name}</h3>
+                    <span className={`status-pill ${status.tone}`}>{status.label}</span>
+                  </div>
+                  <p className="assignment-course">{courseNames.get(a.course_id) ?? 'Unknown course'}{a.category ? ` · ${a.category}` : ''}</p>
+                  <div className="assignment-meta">
+                    <span><strong>Due</strong> {dueLabel(a)}</span>
+                    <span><strong>Score</strong> {scoreLabel(a)}</span>
+                  </div>
+                </div>
+                <div className="assignment-actions">
+                  {(a.score == null || a.missing) && !a.excused && (
+                    <button type="button" className={`btn ${submitted ? '' : 'primary'}`} disabled={busyId === a.id}
+                      onClick={() => setSubmission(a, !submitted)}>
+                      {busyId === a.id ? 'Saving…' : submitted ? 'Mark not submitted' : 'Mark submitted'}
+                    </button>
+                  )}
+                  {a.submitted_override != null && (
+                    <button type="button" className="btn ghost" disabled={busyId === a.id}
+                      onClick={() => setSubmission(a, null)}>Use Canvas status</button>
+                  )}
+                  {a.html_url && <a className="assignment-open" href={a.html_url} target="_blank" rel="noreferrer">Open in Canvas ↗</a>}
+                </div>
+              </article>
+            );
+          })}</div>
+          </section>)}
+        </div>
+      )}
+      <p className="assignment-note">Submission changes here only update your tracker. Submit the work in Canvas.</p>
     </main>
   );
 }
