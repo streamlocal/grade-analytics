@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { useCourses } from '../hooks/useData';
+import { fetchSnapshotsForCourses, useCourses } from '../hooks/useData';
 import { Card, Skeleton } from '../components/ui';
 import { delta, scoreAt } from '../utils/format';
 import { effectiveScore, letterGrade, overallGpa, qualityPoints, type CourseLevel } from '../utils/gpa';
@@ -43,14 +43,16 @@ export default function Compare() {
   const [snaps, setSnaps] = useState<Record<string, CourseSnapshot[]>>({});
 
   useEffect(() => {
+    let cancelled = false;
     const ids = courses.filter((c) => c.tracked).map((c) => c.id);
-    if (!ids.length) return;
-    supabase.from('course_snapshots').select('*').in('course_id', ids).order('created_at')
-      .then(({ data }) => {
+    if (!ids.length) return () => { cancelled = true; };
+    void fetchSnapshotsForCourses(ids).then((data) => {
+        if (cancelled) return;
         const m: Record<string, CourseSnapshot[]> = {};
-        for (const s of (data ?? []) as CourseSnapshot[]) (m[s.course_id] ??= []).push(s);
+        for (const s of data) (m[s.course_id] ??= []).push(s);
         setSnaps(m);
-      });
+      }).catch(() => { if (!cancelled) setSnaps({}); });
+    return () => { cancelled = true; };
   }, [courses]);
 
   async function setLevel(id: string, level: CourseLevel) {
@@ -84,7 +86,7 @@ export default function Compare() {
                 <tr key={c.id}>
                   <td>{c.name}{c.score_override != null && <span className="muted" title="Manual override"> · manual</span>}</td>
                   <td><GradeInput course={c} onSaved={reload} /></td>
-                  <td>{c.current_grade ?? letterGrade(score)}</td>
+                  <td>{c.score_override != null ? letterGrade(score) : c.current_grade ?? letterGrade(score)}</td>
                   <td>
                     <select value={lvl} onChange={(e) => setLevel(c.id, e.target.value as CourseLevel)} style={{ maxWidth: 130 }}>
                       {LEVELS.map((l) => <option key={l} value={l}>{l}</option>)}

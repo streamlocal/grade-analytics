@@ -61,10 +61,10 @@ export default function CourseDetail() {
         <span className="muted">Quality points: <strong>{qualityPoints(effectiveScore(course), level)?.toFixed(2) ?? '—'}</strong></span>
       </div>
       <div className="grid stats">
-        <Card><div className="stat"><div className="l">Current</div><div className="v">{fmtPct(effectiveScore(course))} {course.current_grade ?? letterFor(effectiveScore(course))}</div></div></Card>
+        <Card><div className="stat"><div className="l">Current</div><div className="v">{fmtPct(effectiveScore(course))} {course.score_override != null ? letterFor(effectiveScore(course)) : course.current_grade ?? letterFor(effectiveScore(course))}</div></div></Card>
         <Card><div className="stat"><div className="l">Highest</div><div className="v">{fmtPct(hi)}</div></div></Card>
         <Card><div className="stat"><div className="l">Lowest</div><div className="v">{fmtPct(lo)}</div></div></Card>
-        <Card><div className="stat"><div className="l">Missing</div><div className="v">{assignments.filter((a) => a.missing && !isSubmitted(a)).length}</div></div></Card>
+        <Card><div className="stat"><div className="l">Missing</div><div className="v">{assignments.filter((a) => a.missing && !a.excused && !isSubmitted(a)).length}</div></div></Card>
       </div>
       <Card>
         <div className="toolbar">
@@ -89,10 +89,10 @@ export default function CourseDetail() {
           <tbody>
             {assignments.map((a) => (
               <tr key={a.id}>
-                <td>{a.name}</td>
+                <td>{a.html_url ? <a href={a.html_url} target="_blank" rel="noreferrer">{a.name}</a> : a.name}</td>
                 <td>{a.due_at ? new Date(a.due_at).toLocaleDateString() : '—'}</td>
                 <td>{a.score == null ? 'Ungraded' : `${a.score}/${a.points_possible}`}</td>
-                <td>{a.excused ? 'Excused' : isSubmitted(a) ? (a.score == null ? 'Submitted' : 'Graded') : a.missing ? 'Missing' : a.late ? 'Late' : 'Unsubmitted'}</td>
+                <td>{a.excused ? 'Excused' : a.missing && !isSubmitted(a) ? 'Missing' : a.score != null ? 'Graded' : isSubmitted(a) ? 'Submitted' : a.late ? 'Late' : 'Unsubmitted'}</td>
               </tr>
             ))}
           </tbody>

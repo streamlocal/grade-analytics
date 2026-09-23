@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { supabase } from '../services/supabaseClient';
-import { useCourses } from '../hooks/useData';
+import { useAssignments, useCourses } from '../hooks/useData';
 import { Card, Empty } from '../components/ui';
 import { fmtPct } from '../utils/format';
 import type { Assignment, Course } from '../models/types';
@@ -55,16 +54,10 @@ function compute(assignments: Assignment[], hypos: Hypo[], categories: Course['c
 export default function WhatIf() {
   const { courses } = useCourses();
   const [courseId, setCourseId] = useState('');
-  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const { assignments, loading: assignmentsLoading, error: assignmentsError, reload: reloadAssignments } = useAssignments(courseId || null);
   const [hypos, setHypos] = useState<Hypo[]>([{ name: 'Upcoming Test', score: '42', points: '50', category: '' }]);
 
   const course = courses.find((c) => c.id === courseId);
-
-  useEffect(() => {
-    if (!courseId) { setAssignments([]); return; }
-    supabase.from('assignments').select('*').eq('course_id', courseId)
-      .then(({ data }) => setAssignments((data ?? []) as Assignment[]));
-  }, [courseId]);
 
   // Real Canvas categories (from assignment groups), falling back to categories
   // observed on stored assignments.
@@ -74,18 +67,18 @@ export default function WhatIf() {
     return [...new Set([...fromCourse, ...fromAssignments])];
   }, [course, assignments]);
 
-  // Default each hypothetical to a sensible category (prefer one containing "test").
+  // Keep hypothetical categories valid when the selected course changes.
   useEffect(() => {
-    if (!categoryNames.length) return;
-    setHypos((hs) => hs.map((h) => h.category ? h : {
+    const preferred = categoryNames.find((c) => /test|exam|quiz|assessment/i.test(c)) ?? categoryNames[0] ?? '';
+    setHypos((hs) => hs.map((h) => categoryNames.includes(h.category) ? h : {
       ...h,
-      category: categoryNames.find((c) => /test|exam|quiz|assessment/i.test(c)) ?? categoryNames[0],
+      category: preferred,
     }));
   }, [categoryNames.join('|')]);
 
   const result = useMemo(
-    () => (course ? compute(assignments, hypos, course.categories ?? []) : null),
-    [course, assignments, hypos]
+    () => (course && !assignmentsLoading && !assignmentsError ? compute(assignments, hypos, course.categories ?? []) : null),
+    [course, assignments, hypos, assignmentsLoading, assignmentsError]
   );
 
   const weighted = (course?.categories ?? []).some((c) => c.weight > 0);
@@ -102,6 +95,8 @@ export default function WhatIf() {
             ))}
           </select>
         </label>
+
+        {course && assignmentsError && <p className="error" role="alert">Could not load this course’s assignments: {assignmentsError} <button type="button" className="btn" onClick={reloadAssignments}>Try again</button></p>}
 
         {course && categoryNames.length > 0 && (
           <p className="muted" style={{ fontSize: 12 }}>
@@ -135,12 +130,12 @@ export default function WhatIf() {
       </Card>
 
       <Card>
-        {!course || !result ? <Empty title="Select a course to simulate" /> : (
+        {!course ? <Empty title="Select a course to simulate" /> : assignmentsLoading ? <p className="muted">Loading assignments…</p> : assignmentsError ? <Empty title="Simulation unavailable" hint="Reload the course’s assignments and try again." /> : !result ? null : (
           <>
             <p>Current grade: <strong>{result.current == null ? '—' : `${result.current.toFixed(2)}%`}</strong></p>
             <p>Simulated grade: <strong>{result.simulated == null ? '—' : `${result.simulated.toFixed(2)}%`}</strong></p>
             {result.current != null && result.simulated != null && (
-              <p className={result.simulated >= result.current ? 'delta-up' : 'delta-down'}>
+              <p className={Math.abs(result.simulated - result.current) < 0.005 ? 'delta-flat' : result.simulated > result.current ? 'delta-up' : 'delta-down'}>
                 Change: {result.simulated - result.current >= 0 ? '+' : ''}{(result.simulated - result.current).toFixed(2)} points
               </p>
             )}

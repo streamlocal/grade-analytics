@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../services/supabaseClient';
 import { useAssignments, useCourses } from '../hooks/useData';
 import { Empty, Skeleton } from '../components/ui';
@@ -81,7 +82,7 @@ function scoreLabel(a: Assignment): string {
 export default function Assignments() {
   const { courses } = useCourses();
   const { assignments, loading, error, reload } = useAssignments();
-  const [view, setView] = useState<View | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState('');
   const [courseId, setCourseId] = useState('all');
   const [sort, setSort] = useState<Sort | null>(null);
@@ -147,7 +148,9 @@ export default function Assignments() {
     all: assignments.length,
     graded: assignments.filter((a) => a.score != null).length,
   }), [assignments, now]);
-  const selectedView: View = view ?? (counts.attention > 0 ? 'attention' : 'upcoming');
+  const requestedView = searchParams.get('view');
+  const selectedView: View = requestedView === 'attention' || requestedView === 'upcoming' || requestedView === 'all' || requestedView === 'graded'
+    ? requestedView : counts.attention > 0 ? 'attention' : 'upcoming';
   const selectedSort: Sort = sort ?? (selectedView === 'graded' ? 'graded' : 'due');
 
   const rows = useMemo(() => assignments.filter((a) => {
@@ -175,7 +178,7 @@ export default function Assignments() {
   }), [assignments, selectedView, courseId, search, selectedSort, courseNames, now, gradeTimes]);
 
   const groups = useMemo(() => {
-    if (selectedView === 'graded') {
+    if (selectedView === 'graded' && selectedSort === 'graded') {
       const grouped = new Map<string, Assignment[]>([
         ['Last 24 hours', []], ['Last 7 days', []], ['Before that', []],
       ]);
@@ -245,7 +248,7 @@ export default function Assignments() {
       <div className="assignment-tabs" role="group" aria-label="Assignment views">
         {tabs.map((tab) => (
           <button key={tab.id} type="button" aria-pressed={selectedView === tab.id}
-            className={`assignment-tab ${selectedView === tab.id ? 'active' : ''}`} onClick={() => { setView(tab.id); setSort(null); }}>
+            className={`assignment-tab ${selectedView === tab.id ? 'active' : ''}`} onClick={() => { setSearchParams({ view: tab.id }); setSort(null); }}>
             {tab.label}<span className="assignment-count">{counts[tab.id]}</span>
           </button>
         ))}
@@ -276,13 +279,13 @@ export default function Assignments() {
         {(search || courseId !== 'all') && <button type="button" className="btn ghost" onClick={() => { setSearch(''); setCourseId('all'); }}>Clear filters</button>}
         <button type="button" className="btn assignment-export" disabled={!rows.length} onClick={exportCsv}>Export CSV</button>
       </div>
-      {selectedView === 'graded' && <p className="assignment-grade-note">Groups use grade changes found by sync. Grades imported before tracking began appear under “Before that.”</p>}
+      {selectedView === 'graded' && selectedSort === 'graded' && <p className="assignment-grade-note">Groups use grade changes found by sync. Grades imported before tracking began appear under “Before that.”</p>}
       {message && <div className="error" role="alert">{message}</div>}
       {error && <div className="error" role="alert">Assignments could not load: {error} <button type="button" className="btn" onClick={reload}>Try again</button></div>}
 
       {loading ? <Skeleton lines={5} /> : error ? null : rows.length === 0 ? (
-        <Empty title={selectedView === 'attention' ? 'Nothing needs attention' : 'No assignments found'}
-          hint={search || courseId !== 'all' ? 'Try a different search or clear your filters.' : selectedView === 'upcoming' ? 'No open assignments are due in the next 14 days.' : 'Assignments will appear here after a Canvas sync.'} />
+        <Empty title={selectedView === 'attention' ? 'Nothing needs attention' : selectedView === 'graded' ? 'No graded assignments yet' : 'No assignments found'}
+          hint={search || courseId !== 'all' ? 'Try a different search or clear your filters.' : selectedView === 'attention' ? 'Nothing overdue or missing right now.' : selectedView === 'upcoming' ? 'No open assignments are due in the next 14 days.' : selectedView === 'graded' ? 'Graded work will appear here after Canvas returns a score.' : 'Assignments will appear here after a Canvas sync.'} />
       ) : (
         <div className="assignment-groups">
           {groups.map((group) => <section key={group.label || 'all'} className="assignment-group">

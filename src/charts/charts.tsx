@@ -15,7 +15,8 @@ export function Sparkline({ points }: { points: (number | null)[] }) {
   const y = (value: number) => bottom - ((value - min) / chartSpan) * (bottom - top);
   const x = (index: number) => left + (index / Math.max(vals.length - 1, 1)) * (right - left);
   const d = vals.map((value, index) => `${index === 0 ? 'M' : 'L'}${x(index).toFixed(1)},${y(value).toFixed(1)}`).join(' ');
-  const up = vals[vals.length - 1] >= vals[0];
+  const movement = vals[vals.length - 1] - vals[0];
+  const lineColor = Math.abs(movement) < 0.05 ? 'var(--muted)' : movement > 0 ? 'var(--up)' : 'var(--down)';
   const ticks = [max, (max + min) / 2, min];
   return (
     <div className="course-chart">
@@ -26,9 +27,9 @@ export function Sparkline({ points }: { points: (number | null)[] }) {
           <text x="0" y={y(tick) + 3} className="course-chart-tick">{Number.isInteger(tick) ? tick : tick.toFixed(1)}%</text>
           <line x1={left} x2={right} y1={y(tick)} y2={y(tick)} className="course-chart-gridline" />
         </g>)}
-        {vals.length >= 2 && <path d={d} fill="none" stroke={up ? 'var(--up)' : 'var(--down)'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />}
-        {vals.length >= 2 && <circle cx={x(0)} cy={y(vals[0])} r="3.5" fill={up ? 'var(--up)' : 'var(--down)'} />}
-        <circle cx={vals.length === 1 ? right : x(vals.length - 1)} cy={y(vals[vals.length - 1])} r="4" fill={up ? 'var(--up)' : 'var(--down)'} stroke="var(--card)" strokeWidth="1.5" />
+        {vals.length >= 2 && <path d={d} fill="none" stroke={lineColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />}
+        {vals.length >= 2 && <circle cx={x(0)} cy={y(vals[0])} r="3.5" fill={lineColor} />}
+        <circle cx={vals.length === 1 ? right : x(vals.length - 1)} cy={y(vals[vals.length - 1])} r="4" fill={lineColor} stroke="var(--card)" strokeWidth="1.5" />
         <text x={left} y="92" className="course-chart-axis">Earlier</text>
         <text x={right} y="92" textAnchor="end" className="course-chart-axis">Latest</text>
       </svg>

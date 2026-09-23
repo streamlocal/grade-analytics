@@ -23,24 +23,49 @@ export function useCourses() {
 export function useSnapshots(courseId: string | null) {
   const [snaps, setSnaps] = useState<CourseSnapshot[]>([]);
   useEffect(() => {
-    if (!courseId) return;
-    supabase.from('course_snapshots').select('*')
-      .eq('course_id', courseId).order('created_at')
-      .then(({ data }) => setSnaps((data ?? []) as CourseSnapshot[]));
+    let cancelled = false;
+    setSnaps([]);
+    if (!courseId) return () => { cancelled = true; };
+    void fetchSnapshotsForCourses([courseId]).then((data) => {
+      if (!cancelled) setSnaps(data);
+    }).catch(() => { if (!cancelled) setSnaps([]); });
+    return () => { cancelled = true; };
   }, [courseId]);
   return snaps;
+}
+
+export async function fetchSnapshotsForCourses(courseIds: string[]): Promise<CourseSnapshot[]> {
+  if (!courseIds.length) return [];
+  const all: CourseSnapshot[] = [];
+  const pageSize = 1000;
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabase.from('course_snapshots').select('*')
+      .in('course_id', courseIds).order('created_at').order('id')
+      .range(offset, offset + pageSize - 1);
+    if (error) throw error;
+    all.push(...((data ?? []) as CourseSnapshot[]));
+    if (!data || data.length < pageSize) break;
+  }
+  return all;
 }
 
 export function useAssignments(courseId?: string | null) {
   const [rows, setRows] = useState<Assignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [loadedFor, setLoadedFor] = useState<string | null | undefined>(undefined);
   const [tick, setTick] = useState(0);
   const reload = () => setTick((t) => t + 1);
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
+    if (courseId === null) {
+      setRows([]);
+      setLoadedFor(null);
+      setLoading(false);
+      return () => { cancelled = true; };
+    }
     async function load() {
       const all: Assignment[] = [];
       const pageSize = 1000;
@@ -53,6 +78,7 @@ export function useAssignments(courseId?: string | null) {
         if (queryError) {
           setError(queryError.message);
           setRows([]);
+          setLoadedFor(courseId);
           setLoading(false);
           return;
         }
@@ -61,13 +87,19 @@ export function useAssignments(courseId?: string | null) {
       }
       if (!cancelled) {
         setRows(all);
+        setLoadedFor(courseId);
         setLoading(false);
       }
     }
     void load();
     return () => { cancelled = true; };
   }, [courseId, tick]);
-  return { assignments: rows, loading, error, reload };
+  return {
+    assignments: loadedFor === courseId ? rows : [],
+    loading: loadedFor !== courseId || loading,
+    error: loadedFor === courseId ? error : null,
+    reload,
+  };
 }
 
 export function useActivity(limit = 30) {
@@ -84,6 +116,7 @@ export function useLastSync() {
   const [run, setRun] = useState<SyncRun | null>(null);
   useEffect(() => {
     supabase.from('sync_runs').select('*')
+      .eq('status', 'complete')
       .order('started_at', { ascending: false }).limit(1).maybeSingle()
       .then(({ data }) => setRun((data ?? null) as SyncRun | null));
   }, []);

@@ -97,10 +97,10 @@ main > .card + .card { margin-top: 18px; }
 .course-card-top > span { color: var(--muted); font-size: .82rem; text-align: right; }
 .course-chart { margin: auto 0 12px; padding: 10px 10px 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg-soft); }
 .course-chart svg { display: block; width: 100%; height: auto; }
-.course-chart-tick { fill: var(--muted); font: 9px/1 "Segoe UI Variable", "Segoe UI", sans-serif; }
-.course-chart-axis { fill: var(--muted); font: 9px/1 "Segoe UI Variable", "Segoe UI", sans-serif; }
+.course-chart-tick { fill: var(--muted); font: 13px/1 "Segoe UI Variable", "Segoe UI", sans-serif; }
+.course-chart-axis { fill: var(--muted); font: 12px/1 "Segoe UI Variable", "Segoe UI", sans-serif; }
 .course-chart-gridline { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 3; }
-.course-chart-values { display: flex; justify-content: space-between; gap: 9px; padding: 2px 1px 0; color: var(--muted); font-size: .74rem; }
+.course-chart-values { display: flex; justify-content: space-between; gap: 9px; padding: 2px 1px 0; color: var(--muted); font-size: .82rem; }
 .course-chart-values strong { color: var(--text); font-weight: 650; }
 .course-chart-empty { display: grid; place-items: center; min-height: 114px; margin: auto 0 12px; padding: 15px; border: 1px dashed var(--border); border-radius: 7px; color: var(--muted); background: var(--bg-soft); font-size: .83rem; text-align: center; }
 .classes-heading { flex-wrap: wrap; }
@@ -117,6 +117,7 @@ main > .card + .card { margin-top: 18px; }
 .trend-choice strong { font-size: .83rem; font-variant-numeric: tabular-nums; }
 .course-missing { align-self: flex-start; margin-top: 9px; color: var(--down); font-size: .8rem; font-weight: 600; }
 .dashboard-priority { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; margin-top: 18px; }
+.dashboard-assignment-error { margin: 0 0 14px; }
 .priority-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 15px; margin-bottom: 10px; }
 .priority-heading h2 { font-size: 1.05rem; margin: 0; }
 .priority-heading a { white-space: nowrap; font-size: .8rem; font-weight: 650; }

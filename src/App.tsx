@@ -99,7 +99,6 @@ function Shell() {
     setSyncing(true);
     try {
       await api.syncNow();
-      location.hash = '#/';
       location.reload();
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Sync failed. Previous data kept.');
