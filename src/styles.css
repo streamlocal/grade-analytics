@@ -95,7 +95,14 @@ main > .card + .card { margin-top: 18px; }
 .course-card-top { align-items: start; }
 .course-card-top a { color: var(--text); font-size: 1.03rem; line-height: 1.35; }
 .course-card-top > span { color: var(--muted); font-size: .82rem; text-align: right; }
-.course-card svg { margin: auto 0 12px; max-width: 100%; }
+.course-chart { margin: auto 0 12px; padding: 10px 10px 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--bg-soft); }
+.course-chart svg { display: block; width: 100%; height: auto; }
+.course-chart-tick { fill: var(--muted); font: 9px/1 "Segoe UI Variable", "Segoe UI", sans-serif; }
+.course-chart-axis { fill: var(--muted); font: 9px/1 "Segoe UI Variable", "Segoe UI", sans-serif; }
+.course-chart-gridline { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 3; }
+.course-chart-values { display: flex; justify-content: space-between; gap: 9px; padding: 2px 1px 0; color: var(--muted); font-size: .74rem; }
+.course-chart-values strong { color: var(--text); font-weight: 650; }
+.course-chart-empty { display: grid; place-items: center; min-height: 114px; margin: auto 0 12px; padding: 15px; border: 1px dashed var(--border); border-radius: 7px; color: var(--muted); background: var(--bg-soft); font-size: .83rem; text-align: center; }
 .classes-heading { flex-wrap: wrap; }
 .classes-heading h2 .muted { margin-left: 7px; font: 500 .82rem/1.2 "Segoe UI Variable", "Segoe UI", sans-serif; letter-spacing: 0; }
 .trend-all-controls { display: flex; align-items: center; gap: 5px; }
@@ -184,6 +191,7 @@ table.data tbody tr:hover { background: color-mix(in srgb,var(--accent) 4%,var(-
 .assignment-results strong { color: var(--text); }
 .assignment-results .btn { min-height: 30px; margin-left: auto; }
 .assignment-results .assignment-export { margin-left: 4px; }
+.assignment-grade-note { margin: -5px 0 20px; color: var(--muted); font-size: .82rem; }
 .assignment-group { margin-bottom: 18px; }
 .assignment-group-title { display: flex; gap: 9px; align-items: center; margin: 0 0 10px; font-size: .91rem; font-weight: 650; }
 .assignment-group-title span { color: var(--muted); font-size: .78rem; font-weight: 550; }
@@ -258,6 +266,7 @@ table.data tbody tr:hover { background: color-mix(in srgb,var(--accent) 4%,var(-
 [data-appearance="old"] .topbar nav a.nav-link.active { border-left: 0; border-bottom-color: var(--accent); }
 [data-appearance="old"] .topbar-right { flex-direction: row; align-items: center; gap: 9px; margin: 0 0 0 auto; padding: 0; border: 0; }
 [data-appearance="old"] .topbar-right .btn { width: auto; }
+[data-appearance="old"] .topbar-right .sync-help-tooltip { right: calc(100% + 9px); left: auto; }
 [data-appearance="old"] .topbar-right .user { max-width: 150px; }
 [data-appearance="old"] main { max-width: 1150px; padding: 28px 22px 60px; }
 [data-appearance="old"] .card, [data-appearance="old"] .assignment-item { border-radius: 14px; }

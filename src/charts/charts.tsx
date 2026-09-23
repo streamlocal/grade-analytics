@@ -1,18 +1,42 @@
 import { fmtPct } from '../utils/format';
 
-export function Sparkline({ points, width = 120, height = 36 }: { points: (number | null)[]; width?: number; height?: number }) {
+export function Sparkline({ points }: { points: (number | null)[] }) {
   const vals = points.filter((p): p is number => p != null);
-  if (vals.length < 2) return <svg width={width} height={height} aria-label="Not enough history"><line x1="0" y1={height/2} x2={width} y2={height/2} stroke="currentColor" strokeOpacity="0.3" strokeDasharray="3 3" /></svg>;
-  const min = Math.min(...vals);
-  const max = Math.max(...vals);
-  const span = Math.max(max - min, 0.5);
-  const stepX = width / (vals.length - 1);
-  const d = vals.map((v, i) => `${i === 0 ? 'M' : 'L'}${(i * stepX).toFixed(1)},${(height - 4 - ((v - min) / span) * (height - 8)).toFixed(1)}`).join(' ');
+  if (!vals.length) return <div className="course-chart-empty">No grade history yet. Sync again to start a trend.</div>;
+  const rawMin = Math.min(...vals);
+  const rawMax = Math.max(...vals);
+  const spread = rawMax - rawMin;
+  const step = spread < 10 ? 2 : spread < 25 ? 5 : 10;
+  const min = Math.max(0, Math.floor((rawMin - step) / step) * step);
+  const max = Math.ceil((rawMax + step) / step) * step;
+  const chartSpan = Math.max(max - min, step);
+  const width = 260, height = 98;
+  const left = 39, right = 250, top = 9, bottom = 73;
+  const y = (value: number) => bottom - ((value - min) / chartSpan) * (bottom - top);
+  const x = (index: number) => left + (index / Math.max(vals.length - 1, 1)) * (right - left);
+  const d = vals.map((value, index) => `${index === 0 ? 'M' : 'L'}${x(index).toFixed(1)},${y(value).toFixed(1)}`).join(' ');
   const up = vals[vals.length - 1] >= vals[0];
+  const ticks = [max, (max + min) / 2, min];
   return (
-    <svg width={width} height={height} role="img" aria-label={`Trend ${fmtPct(vals[vals.length-1])}`}>
-      <path d={d} fill="none" stroke={up ? 'var(--up)' : 'var(--down)'} strokeWidth="2" strokeLinejoin="round" />
-    </svg>
+    <div className="course-chart">
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={vals.length === 1
+        ? `One Canvas grade snapshot at ${fmtPct(vals[0])}`
+        : `Canvas grade trend from ${fmtPct(vals[0])} to ${fmtPct(vals[vals.length - 1])}`}>
+        {ticks.map((tick) => <g key={tick}>
+          <text x="0" y={y(tick) + 3} className="course-chart-tick">{Number.isInteger(tick) ? tick : tick.toFixed(1)}%</text>
+          <line x1={left} x2={right} y1={y(tick)} y2={y(tick)} className="course-chart-gridline" />
+        </g>)}
+        {vals.length >= 2 && <path d={d} fill="none" stroke={up ? 'var(--up)' : 'var(--down)'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />}
+        {vals.length >= 2 && <circle cx={x(0)} cy={y(vals[0])} r="3.5" fill={up ? 'var(--up)' : 'var(--down)'} />}
+        <circle cx={vals.length === 1 ? right : x(vals.length - 1)} cy={y(vals[vals.length - 1])} r="4" fill={up ? 'var(--up)' : 'var(--down)'} stroke="var(--card)" strokeWidth="1.5" />
+        <text x={left} y="92" className="course-chart-axis">Earlier</text>
+        <text x={right} y="92" textAnchor="end" className="course-chart-axis">Latest</text>
+      </svg>
+      <div className="course-chart-values">
+        {vals.length >= 2 ? <span>Started <strong>{fmtPct(vals[0])}</strong></span> : <span>One snapshot so far</span>}
+        <span>Latest Canvas <strong>{fmtPct(vals[vals.length - 1])}</strong></span>
+      </div>
+    </div>
   );
 }
 

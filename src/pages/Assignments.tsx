@@ -175,7 +175,19 @@ export default function Assignments() {
   }), [assignments, selectedView, courseId, search, selectedSort, courseNames, now, gradeTimes]);
 
   const groups = useMemo(() => {
-    if (selectedSort !== 'due' || selectedView === 'graded') return [{ label: '', items: rows }];
+    if (selectedView === 'graded') {
+      const grouped = new Map<string, Assignment[]>([
+        ['Last 24 hours', []], ['Last 7 days', []], ['Before that', []],
+      ]);
+      for (const assignment of rows) {
+        const gradedAt = gradeTimes.get(assignment.id);
+        const label = gradedAt != null && gradedAt >= now - 86400_000 ? 'Last 24 hours'
+          : gradedAt != null && gradedAt >= now - 7 * 86400_000 ? 'Last 7 days' : 'Before that';
+        grouped.get(label)?.push(assignment);
+      }
+      return [...grouped].filter(([, items]) => items.length > 0).map(([label, items]) => ({ label, items }));
+    }
+    if (selectedSort !== 'due') return [{ label: '', items: rows }];
     const grouped = new Map<string, Assignment[]>();
     for (const a of rows) {
       const label = dateGroup(a, now);
@@ -185,7 +197,7 @@ export default function Assignments() {
     return ['Past due', 'Today', 'Tomorrow', 'Next 7 days', 'Later', 'No due date']
       .filter((label) => grouped.has(label))
       .map((label) => ({ label, items: grouped.get(label) ?? [] }));
-  }, [rows, selectedSort, selectedView, now]);
+  }, [rows, selectedSort, selectedView, now, gradeTimes]);
 
   function exportCsv() {
     const headers = ['Assignment', 'Course', 'Category', 'Due', 'Score', 'Points possible', 'Status', 'Canvas URL'];
@@ -264,6 +276,7 @@ export default function Assignments() {
         {(search || courseId !== 'all') && <button type="button" className="btn ghost" onClick={() => { setSearch(''); setCourseId('all'); }}>Clear filters</button>}
         <button type="button" className="btn assignment-export" disabled={!rows.length} onClick={exportCsv}>Export CSV</button>
       </div>
+      {selectedView === 'graded' && <p className="assignment-grade-note">Groups use grade changes found by sync. Grades imported before tracking began appear under “Before that.”</p>}
       {message && <div className="error" role="alert">{message}</div>}
       {error && <div className="error" role="alert">Assignments could not load: {error} <button type="button" className="btn" onClick={reload}>Try again</button></div>}
 
