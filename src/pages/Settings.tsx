@@ -43,6 +43,7 @@ export default function Settings({ onNeedsSetup, appearance, onAppearanceChange,
     } catch { setConn({ connected: false }); }
     setConnectionLoading(false);
     const { data } = await supabase.from('sync_runs').select('started_at')
+      .eq('status', 'complete')
       .order('started_at', { ascending: false }).limit(1).maybeSingle();
     if (data) setLastSync(fmtDateTime((data as { started_at: string }).started_at));
     try {
