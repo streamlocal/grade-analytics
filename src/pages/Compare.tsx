@@ -3,7 +3,7 @@ import { supabase } from '../services/supabaseClient';
 import { fetchSnapshotsForCourses, useCourses } from '../hooks/useData';
 import { Card, Skeleton } from '../components/ui';
 import { delta, scoreAt } from '../utils/format';
-import { effectiveScore, letterGrade, overallGpa, qualityPoints, type CourseLevel } from '../utils/gpa';
+import { effectiveScore, letterGrade, overallGpa, qualityPoints, roundedGpaPercent, type CourseLevel } from '../utils/gpa';
 import type { Course, CourseSnapshot } from '../models/types';
 
 const LEVELS: CourseLevel[] = ['Regular', 'Honors', 'AP', 'Free'];
@@ -73,10 +73,10 @@ export default function Compare() {
     <main>
       <h2>Comparison</h2>
       <Card>
-        <h3>GPA — Saint Ignatius scale</h3>
-        <p style={{ fontSize: 28, fontWeight: 800 }}>{gpa == null ? '—' : gpa.toFixed(2)}</p>
+        <h3>Current GPA estimate — Saint Ignatius scale</h3>
+        <p style={{ fontSize: 28, fontWeight: 800 }}>{gpa == null ? '—' : gpa.toFixed(3)}</p>
         <table className="data">
-          <thead><tr><th>Course</th><th>Grade %</th><th>Letter</th><th>Level</th><th>Quality pts</th></tr></thead>
+          <thead><tr><th>Course</th><th>Grade %</th><th>GPA uses</th><th>Letter (display)</th><th>Level</th><th>Quality pts</th></tr></thead>
           <tbody>
             {tracked.map((c) => {
               const lvl = (c.level ?? 'Regular') as CourseLevel;
@@ -86,6 +86,7 @@ export default function Compare() {
                 <tr key={c.id}>
                   <td>{c.name}{c.score_override != null && <span className="muted" title="Manual override"> · manual</span>}</td>
                   <td><GradeInput course={c} onSaved={reload} /></td>
+                  <td>{lvl === 'Free' ? 'excluded' : roundedGpaPercent(score) == null ? '—' : `${roundedGpaPercent(score)}%`}</td>
                   <td>{c.score_override != null ? letterGrade(score) : c.current_grade ?? letterGrade(score)}</td>
                   <td>
                     <select value={lvl} onChange={(e) => setLevel(c.id, e.target.value as CourseLevel)} style={{ maxWidth: 130 }}>
@@ -100,7 +101,7 @@ export default function Compare() {
         </table>
         <p className="muted" style={{ fontSize: 12 }}>
           Type a grade to override Canvas (blank = use Canvas). Overrides survive syncs and are marked "manual".
-          Ignatius scale: 100→4.3 … 65→1.0, below 65→0; Honors +0.25, AP/dual-credit/AP-prereq +0.5. Free periods excluded.
+          Each course percentage rounds to the nearest whole percent (.5 up) before quality points are assigned. Ignatius scale: 100→4.3 … 65→1.0, below 65→0; Honors +0.25, AP/dual-credit/AP-prereq +0.5. Free periods excluded. The school’s calculator uses semester grades, which may differ from current Canvas grades. Letter labels are display-only; the handbook uses percentages and quality points.
         </p>
       </Card>
       <Card>

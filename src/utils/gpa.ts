@@ -12,7 +12,8 @@ export function effectiveScore(c: { current_score: number | null; score_override
   return c.score_override ?? c.current_score;
 }
 
-// Base quality points by rounded-down integer percentage.
+// The school quality-point table uses whole percentages. Round the underlying
+// Canvas value before lookup; .5 and above round up (not the displayed 1dp value).
 const TABLE: Record<number, number> = {
   100: 4.3, 99: 4.3, 98: 4.3, 97: 4.2, 96: 4.1, 95: 4.0, 94: 3.9,
   93: 3.8, 92: 3.7, 91: 3.6, 90: 3.5, 89: 3.4, 88: 3.3, 87: 3.2,
@@ -21,9 +22,14 @@ const TABLE: Record<number, number> = {
   72: 1.7, 71: 1.6, 70: 1.5, 69: 1.4, 68: 1.3, 67: 1.2, 66: 1.1, 65: 1.0,
 };
 
+export function roundedGpaPercent(score: number | null | undefined): number | null {
+  // Extra-credit scores still use the highest (100%) school-table row.
+  return score == null || !Number.isFinite(score) ? null : Math.max(0, Math.min(100, Math.round(score)));
+}
+
 export function baseQualityPoints(score: number | null | undefined): number | null {
-  if (score == null || Number.isNaN(score)) return null;
-  const p = Math.floor(score);
+  const p = roundedGpaPercent(score);
+  if (p == null) return null;
   if (p < 65) return 0; // failing grades get 0 quality points
   if (p >= 100) return TABLE[100];
   return TABLE[p] ?? null;
@@ -45,11 +51,11 @@ export function overallGpa(classes: { score: number | null; level: CourseLevel }
     .map((c) => qualityPoints(c.score, c.level))
     .filter((p): p is number => p != null);
   if (!pts.length) return null;
-  return Math.round((pts.reduce((a, b) => a + b, 0) / pts.length) * 100) / 100;
+  return Math.round((pts.reduce((a, b) => a + b, 0) / pts.length) * 1000) / 1000;
 }
 
-// Letter grades A+ through D-, F — mapped onto Ignatius bands
-// (A: 90–100, B: 80–89, C: 70–79, D: 65–69, F: <65).
+// Display-only letter estimates. The school assigns quality points from
+// percentages and does not publish these +/- labels on report cards.
 export function letterGrade(score: number | null | undefined): string {
   if (score == null || Number.isNaN(score)) return '—';
   const p = Math.floor(score);

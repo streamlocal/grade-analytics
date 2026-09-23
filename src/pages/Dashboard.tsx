@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { Card, Empty, Skeleton } from '../components/ui';
 import { Sparkline } from '../charts/charts';
 import { delta, deltaClass, fmtDateTime, fmtPct, letterFor, scoreAt, isSubmitted } from '../utils/format';
-import { overallGpa, qualityPoints, effectiveScore } from '../utils/gpa';
+import { overallGpa, qualityPoints, effectiveScore, roundedGpaPercent } from '../utils/gpa';
 import type { CourseSnapshot } from '../models/types';
 
 type TrendDays = 1 | 7 | 30;
@@ -69,7 +69,7 @@ export default function Dashboard() {
       {assignmentsError && <div className="error dashboard-assignment-error" role="alert">Assignment data is unavailable. Open Assignments to try again.</div>}
       <div className="grid stats dashboard-stats">
         <Card><div className="stat"><div className="l">Overall average</div><div className="v">{fmtPct(avg)}</div></div></Card>
-        <Card><div className="stat"><div className="l">GPA (Ignatius scale)</div><div className="v">{gpa == null ? '—' : gpa.toFixed(2)}</div></div></Card>
+        <Card><div className="stat"><div className="l">Current GPA estimate (Ignatius scale)</div><div className="v">{gpa == null ? '—' : gpa.toFixed(3)}</div><div className="gpa-note">Each Canvas grade rounds to a whole percent before the school’s quality-point lookup.</div></div></Card>
         <Card><div className="stat"><div className="l">Tracked classes</div><div className="v">{tracked.length}</div></div></Card>
         <Card><div className="stat"><div className="l">Due soon</div><div className="v">{assignmentsLoading || assignmentsError ? '—' : dueSoon.length}</div></div></Card>
         <Card><div className="stat"><div className="l">Needs attention</div><div className="v">{assignmentsLoading || assignmentsError ? '—' : needsAttention.length}</div></div></Card>
@@ -119,7 +119,7 @@ export default function Dashboard() {
             <Card key={c.id} className="course-card">
               <div className="row course-card-top" style={{ justifyContent: 'space-between' }}>
                 <Link to={`/course/${c.id}`}><strong>{c.name}</strong></Link>
-                <span>{fmtPct(cur)} · {c.score_override != null ? letterFor(cur) : c.current_grade ?? letterFor(cur)} · QP {qualityPoints(cur, c.level ?? 'Regular')?.toFixed(2) ?? '—'}</span>
+                <span title={c.level === 'Free' ? 'Excluded from GPA' : cur == null ? undefined : `Quality points use ${roundedGpaPercent(cur)}% after rounding`}>{fmtPct(cur)} · {c.score_override != null ? letterFor(cur) : c.current_grade ?? letterFor(cur)} · QP {qualityPoints(cur, c.level ?? 'Regular')?.toFixed(2) ?? '—'}</span>
               </div>
               <Sparkline points={chartSnaps.map((x) => x.score)} />
               <div className="course-trend-controls" role="group" aria-label={`${c.name} time range`}>
