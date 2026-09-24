@@ -54,7 +54,7 @@ export function overallGpa(classes: { score: number | null; level: CourseLevel }
   return Math.round((pts.reduce((a, b) => a + b, 0) / pts.length) * 1000) / 1000;
 }
 
-// Display-only letter estimates. The school assigns quality points from
+// Display-only letter labels. The school assigns quality points from
 // percentages and does not publish these +/- labels on report cards.
 export function letterGrade(score: number | null | undefined): string {
   if (score == null || Number.isNaN(score)) return '—';

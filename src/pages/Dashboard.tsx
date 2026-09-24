@@ -69,7 +69,7 @@ export default function Dashboard() {
       {assignmentsError && <div className="error dashboard-assignment-error" role="alert">Assignment data is unavailable. Open Assignments to try again.</div>}
       <div className="grid stats dashboard-stats">
         <Card><div className="stat"><div className="l">Overall average</div><div className="v">{fmtPct(avg)}</div></div></Card>
-        <Card><div className="stat"><div className="l">Current GPA estimate (Ignatius scale)</div><div className="v">{gpa == null ? '—' : gpa.toFixed(3)}</div><div className="gpa-note">Each Canvas grade rounds to a whole percent before the school’s quality-point lookup.</div></div></Card>
+        <Card><div className="stat"><div className="l">Current GPA (Ignatius scale)</div><div className="v">{gpa == null ? '—' : gpa.toFixed(3)}</div></div></Card>
         <Card><div className="stat"><div className="l">Tracked classes</div><div className="v">{tracked.length}</div></div></Card>
         <Card><div className="stat"><div className="l">Due soon</div><div className="v">{assignmentsLoading || assignmentsError ? '—' : dueSoon.length}</div></div></Card>
         <Card><div className="stat"><div className="l">Needs attention</div><div className="v">{assignmentsLoading || assignmentsError ? '—' : needsAttention.length}</div></div></Card>

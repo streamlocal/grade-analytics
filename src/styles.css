@@ -91,7 +91,6 @@ main > .card + .card { margin-top: 18px; }
 .dashboard-stats .card:nth-child(-n+2) .stat .v { font-size: 2.05rem; }
 .stat .v { margin-top: 14px; font-size: 1.55rem; font-weight: 650; letter-spacing: -.035em; line-height: 1.15; font-variant-numeric: tabular-nums; }
 .stat .l { color: var(--muted); font-size: .83rem; font-weight: 550; }
-.gpa-note { margin-top: 10px; color: var(--muted); font-size: .78rem; line-height: 1.4; }
 .course-card { display: flex; flex-direction: column; min-height: 175px; }
 .course-card-top { align-items: start; }
 .course-card-top a { color: var(--text); font-size: 1.03rem; line-height: 1.35; }

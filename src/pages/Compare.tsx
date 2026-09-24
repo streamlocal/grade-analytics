@@ -73,7 +73,7 @@ export default function Compare() {
     <main>
       <h2>Comparison</h2>
       <Card>
-        <h3>Current GPA estimate — Saint Ignatius scale</h3>
+        <h3>Current GPA — Saint Ignatius scale</h3>
         <p style={{ fontSize: 28, fontWeight: 800 }}>{gpa == null ? '—' : gpa.toFixed(3)}</p>
         <table className="data">
           <thead><tr><th>Course</th><th>Grade %</th><th>GPA uses</th><th>Letter (display)</th><th>Level</th><th>Quality pts</th></tr></thead>

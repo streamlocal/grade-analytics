@@ -84,7 +84,7 @@ export default function History() {
 
         {mode === 'gpa' ? (
           <>
-            <p className="muted">Current GPA estimate (Ignatius scale): <strong>{currentGpa == null ? '—' : currentGpa.toFixed(3)}</strong></p>
+            <p className="muted">Current GPA (Ignatius scale): <strong>{currentGpa == null ? '—' : currentGpa.toFixed(3)}</strong></p>
             <MultiLineChart unit="" series={[{ id: '__gpa__', name: 'Total GPA', color: '#5b8cff', points: rangeGpa }]} />
             <p className="muted" style={{ fontSize: 12 }}>
               GPA uses Canvas snapshot grades rounded to whole percentages (.5 up), with your per-course Honors/AP weights; Free periods excluded.

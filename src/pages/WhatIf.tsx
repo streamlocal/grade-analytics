@@ -6,7 +6,7 @@ import type { Assignment, Course } from '../models/types';
 
 interface Hypo { name: string; score: string; points: string; category: string }
 
-// Weighted, category-aware grade estimate. Categories + weights come from Canvas
+// Weighted, category-aware grade calculation. Categories + weights come from Canvas
 // (courses.categories); falls back to points-based when no weights are present.
 function gradeFrom(stat: Record<string, { e: number; p: number }>, categories: Course['categories']): number | null {
   // Canvas can expose duplicate group names; keep the largest weight per name.
@@ -142,7 +142,7 @@ export default function WhatIf() {
             <p className="muted" style={{ fontSize: 13 }}>
               {weighted
                 ? 'Uses Canvas category weights for this course.'
-                : 'Points-based estimate — this course has no Canvas category weights.'}
+                : 'Points-based calculation — this course has no Canvas category weights.'}
               {' '}Hypothetical scores never leave your browser.
             </p>
           </>
