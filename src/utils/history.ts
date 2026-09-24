@@ -2,28 +2,39 @@ import type { Course, CourseSnapshot, SyncRun } from '../models/types';
 import { overallGpa } from './gpa';
 
 // The chart represents grade history, not the number of times the refresh
-// button was pressed. Preserve the first value and every actual change, while
-// rolling a run of identical snapshots forward to its latest timestamp.
+// button was pressed. Preserve the baseline, every actual change, and the
+// latest endpoint. That gives unchanged courses a visible horizontal line and
+// changed courses a complete path without a dot for every redundant sync.
 export function collapseUnchangedSnapshots(snapshots: CourseSnapshot[]): CourseSnapshot[] {
   const byCourse = new Map<string, CourseSnapshot[]>();
   for (const snapshot of [...snapshots].sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))) {
     const series = byCourse.get(snapshot.course_id) ?? [];
-    const prior = series[series.length - 1];
-    if (prior && prior.score === snapshot.score) series[series.length - 1] = snapshot;
-    else series.push(snapshot);
+    series.push(snapshot);
     byCourse.set(snapshot.course_id, series);
   }
-  return [...byCourse.values()].flat().sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
+  const compact = [...byCourse.values()].flatMap((series) => {
+    if (series.length <= 2) return series;
+    const kept = [series[0]];
+    for (let index = 1; index < series.length; index++) {
+      if (series[index].score !== series[index - 1].score) kept.push(series[index]);
+    }
+    const latest = series[series.length - 1];
+    if (kept[kept.length - 1].id !== latest.id) kept.push(latest);
+    return kept;
+  });
+  return compact.sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
 }
 
 export function collapseUnchangedPoints(points: { t: string; score: number }[]): { t: string; score: number }[] {
-  const collapsed: { t: string; score: number }[] = [];
-  for (const point of [...points].sort((a, b) => Date.parse(a.t) - Date.parse(b.t))) {
-    const prior = collapsed[collapsed.length - 1];
-    if (prior && prior.score === point.score) collapsed[collapsed.length - 1] = point;
-    else collapsed.push(point);
+  const ordered = [...points].sort((a, b) => Date.parse(a.t) - Date.parse(b.t));
+  if (ordered.length <= 2) return ordered;
+  const compact = [ordered[0]];
+  for (let index = 1; index < ordered.length; index++) {
+    if (ordered[index].score !== ordered[index - 1].score) compact.push(ordered[index]);
   }
-  return collapsed;
+  const latest = ordered[ordered.length - 1];
+  if (compact[compact.length - 1].t !== latest.t) compact.push(latest);
+  return compact;
 }
 
 export function buildGpaTimeline(courses: Course[], snapshots: CourseSnapshot[], runs: SyncRun[]): { t: string; score: number }[] {

@@ -109,7 +109,7 @@ function isVisibleMarker(points: { t: string; score: number | null }[], index: n
 export function MultiLineChart({ series, width = 820, height = 340, onSelect, unit = '%' }: {
   series: Series[]; width?: number; height?: number; onSelect?: (id: string) => void; unit?: string;
 }) {
-  const [hover, setHover] = useState<{ x: number; y: number; text: string } | null>(null);
+  const [hover, setHover] = useState<{ x: number; y: number; name: string; details: string } | null>(null);
   const nums = series.flatMap((s) => s.points.map((p) => p.score)).filter((v): v is number => v != null);
   const times = series.flatMap((s) => s.points.map((p) => new Date(p.t).getTime())).filter((t) => !Number.isNaN(t));
   if (nums.length < 2 || times.length < 2) {
@@ -156,17 +156,21 @@ export function MultiLineChart({ series, width = 820, height = 340, onSelect, un
         <circle key={`${s.id}-${i}`} cx={x(new Date(p.t).getTime())} cy={y(p.score as number)} r="4.5"
           fill={s.color} style={{ cursor: onSelect ? 'pointer' : 'default' }}
           aria-label={`${s.name}: ${(p.score as number).toFixed(2)}${unit} on ${new Date(p.t).toLocaleString()}`}
-          onPointerEnter={() => setHover({ x: x(new Date(p.t).getTime()), y: y(p.score as number), text: `${new Date(p.t).toLocaleString()} · ${(p.score as number).toFixed(2)}${unit}` })}
+          onPointerEnter={() => setHover({
+            x: x(new Date(p.t).getTime()), y: y(p.score as number), name: s.name,
+            details: `${new Date(p.t).toLocaleString()} · ${(p.score as number).toFixed(2)}${unit}`,
+          })}
           onPointerLeave={() => setHover(null)} onClick={() => onSelect?.(s.id)} />
         ));
       })}
       {hover && (() => {
-        const tooltipWidth = 208;
+        const tooltipWidth = 350;
         const tooltipX = Math.max(pad.l, Math.min(hover.x - tooltipWidth / 2, width - pad.r - tooltipWidth));
-        const tooltipY = hover.y < pad.t + 42 ? hover.y + 12 : hover.y - 37;
+        const tooltipY = hover.y < pad.t + 50 ? hover.y + 12 : hover.y - 49;
         return <g pointerEvents="none">
-          <rect x={tooltipX} y={tooltipY} width={tooltipWidth} height="26" rx="5" fill="var(--text)" opacity="0.94" />
-          <text x={tooltipX + 10} y={tooltipY + 17} fontSize="11" fill="var(--card)">{hover.text}</text>
+          <rect x={tooltipX} y={tooltipY} width={tooltipWidth} height="38" rx="5" fill="var(--text)" opacity="0.94" />
+          <text x={tooltipX + 10} y={tooltipY + 14} fontSize="10.5" fontWeight="700" fill="var(--card)">{hover.name}</text>
+          <text x={tooltipX + 10} y={tooltipY + 29} fontSize="10.5" fill="var(--card)">{hover.details}</text>
         </g>;
       })()}
     </svg>

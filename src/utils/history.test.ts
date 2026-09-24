@@ -29,8 +29,12 @@ describe('GPA history', () => {
   it('merges unchanged snapshots while keeping every grade change', () => {
     const snapshots = [snap('a', 1, 95), snap('a', 10, 95), snap('a', 15, 96), snap('a', 60, 96)];
     const collapsed = collapseUnchangedSnapshots(snapshots);
-    expect(collapsed).toHaveLength(2);
-    expect(collapsed.map((point) => point.score)).toEqual([95, 96]);
-    expect(collapsed.map((point) => point.created_at)).toEqual([iso(10), iso(60)]);
+    expect(collapsed).toHaveLength(3);
+    expect(collapsed.map((point) => point.score)).toEqual([95, 96, 96]);
+    expect(collapsed.map((point) => point.created_at)).toEqual([iso(1), iso(15), iso(60)]);
+  });
+  it('keeps both endpoints for a course whose grade never changed', () => {
+    const collapsed = collapseUnchangedSnapshots([snap('a', 1, 95), snap('a', 10, 95), snap('a', 60, 95)]);
+    expect(collapsed.map((point) => point.created_at)).toEqual([iso(1), iso(60)]);
   });
 });
