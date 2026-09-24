@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase } from '../services/supabaseClient';
 import type { Assignment, ActivityEvent, Course, CourseSnapshot, SyncRun } from '../models/types';
 import { ANNOUNCEMENT_WEEK_MS, activityTime, visibleActivity } from '../utils/activity';
@@ -7,14 +7,24 @@ export function useCourses() {
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const hasLoaded = useRef(false);
 
   async function load() {
-    setLoading(true);
-    setError(null);
+    // Keep the existing screen in place during background syncs. Replacing a
+    // populated dashboard with a skeleton on every refresh was both jarring
+    // and could reset inputs in Compare while a grade was being edited.
+    if (!hasLoaded.current) {
+      setLoading(true);
+      setError(null);
+    }
     const { data, error } = await supabase
       .from('courses').select('*').order('name');
     if (error) setError(error.message);
-    else setCourses((data ?? []) as Course[]);
+    else {
+      setCourses((data ?? []) as Course[]);
+      hasLoaded.current = true;
+      setError(null);
+    }
     setLoading(false);
   }
   useEffect(() => {
@@ -28,6 +38,7 @@ export function useCourses() {
 export function useSnapshots(courseId: string | null) {
   const [snaps, setSnaps] = useState<CourseSnapshot[]>([]);
   const [tick, setTick] = useState(0);
+  const previousCourseId = useRef<string | null | undefined>(undefined);
   useEffect(() => {
     const reload = () => setTick((value) => value + 1);
     window.addEventListener('ga-sync-complete', reload);
@@ -35,7 +46,10 @@ export function useSnapshots(courseId: string | null) {
   }, []);
   useEffect(() => {
     let cancelled = false;
-    setSnaps([]);
+    // A background refresh must not blank an already visible chart. Clear only
+    // when the visitor actually switches to another course.
+    if (previousCourseId.current !== courseId) setSnaps([]);
+    previousCourseId.current = courseId;
     if (!courseId) return () => { cancelled = true; };
     void fetchSnapshotsForCourses([courseId]).then((data) => {
       if (!cancelled) setSnaps(data);
@@ -66,6 +80,7 @@ export function useAssignments(courseId?: string | null) {
   const [error, setError] = useState<string | null>(null);
   const [loadedFor, setLoadedFor] = useState<string | null | undefined>(undefined);
   const [tick, setTick] = useState(0);
+  const loadedForRef = useRef<string | null | undefined>(undefined);
   const reload = () => setTick((t) => t + 1);
   useEffect(() => {
     window.addEventListener('ga-sync-complete', reload);
@@ -73,11 +88,15 @@ export function useAssignments(courseId?: string | null) {
   }, []);
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
+    const newScope = loadedForRef.current !== courseId;
+    if (newScope) {
+      setLoading(true);
+      setError(null);
+    }
     if (courseId === null) {
       setRows([]);
       setLoadedFor(null);
+      loadedForRef.current = null;
       setLoading(false);
       return () => { cancelled = true; };
     }
@@ -92,8 +111,12 @@ export function useAssignments(courseId?: string | null) {
         if (cancelled) return;
         if (queryError) {
           setError(queryError.message);
-          setRows([]);
-          setLoadedFor(courseId);
+          // Keep known assignments visible if a background refresh fails.
+          if (newScope) {
+            setRows([]);
+            setLoadedFor(courseId);
+            loadedForRef.current = courseId;
+          }
           setLoading(false);
           return;
         }
@@ -103,6 +126,8 @@ export function useAssignments(courseId?: string | null) {
       if (!cancelled) {
         setRows(all);
         setLoadedFor(courseId);
+        loadedForRef.current = courseId;
+        setError(null);
         setLoading(false);
       }
     }
@@ -122,6 +147,7 @@ export function useActivity() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
+  const hasLoaded = useRef(false);
   useEffect(() => {
     const reload = () => setTick((value) => value + 1);
     window.addEventListener('ga-sync-complete', reload);
@@ -130,8 +156,10 @@ export function useActivity() {
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      setLoading(true);
-      setError(null);
+      if (!hasLoaded.current) {
+        setLoading(true);
+        setError(null);
+      }
       const now = Date.now();
       const cutoff = new Date(now - ANNOUNCEMENT_WEEK_MS).toISOString();
       const all: ActivityEvent[] = [];
@@ -151,6 +179,8 @@ export function useActivity() {
       }
       all.sort((a, b) => activityTime(b) - activityTime(a) || b.created_at.localeCompare(a.created_at));
       setEvents(all.filter((event) => visibleActivity(event, now)));
+      hasLoaded.current = true;
+      setError(null);
       setLoading(false);
     }
     void load();

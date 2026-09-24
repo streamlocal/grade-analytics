@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { fetchSnapshotsForCourses, useActivity, useAssignments, useCourses, useLastSync } from '../hooks/useData';
 import { useEffect, useState } from 'react';
@@ -14,9 +14,13 @@ const trendDays: TrendDays[] = [1, 7, 30];
 
 function useAllSnapshots(courseIds: string[], refresh: number) {
   const [map, setMap] = useState<Record<string, CourseSnapshot[]>>({});
+  const previousCourseKey = useRef<string | undefined>(undefined);
+  const courseKey = courseIds.join(',');
   useEffect(() => {
     let cancelled = false;
-    setMap({});
+    // Preserve completed chart data while a background update is read.
+    if (previousCourseKey.current !== courseKey) setMap({});
+    previousCourseKey.current = courseKey;
     if (!courseIds.length) return () => { cancelled = true; };
     void fetchSnapshotsForCourses(courseIds).then((data) => {
         if (cancelled) return;
@@ -27,7 +31,7 @@ function useAllSnapshots(courseIds: string[], refresh: number) {
         setMap(m);
       }).catch(() => { if (!cancelled) setMap({}); });
     return () => { cancelled = true; };
-  }, [courseIds.join(','), refresh]);
+  }, [courseKey, refresh]);
   return map;
 }
 
@@ -41,6 +45,7 @@ export default function Dashboard() {
   const activity = useActivity();
   const { run: lastSync } = useLastSync();
   const tracked = useMemo(() => courses.filter((c) => c.tracked), [courses]);
+  const assignmentLinks = useMemo(() => new Map(assignments.map((assignment) => [assignment.id, assignment.html_url])), [assignments]);
   const snaps = useAllSnapshots(tracked.map((c) => c.id), snapshotRefresh);
 
   useEffect(() => {
@@ -151,17 +156,21 @@ export default function Dashboard() {
         {activity.error && <div className="error" role="alert">{activity.error}</div>}
         {activity.loading && <p className="muted" role="status">Loading activity…</p>}
         {!activity.loading && activity.events.length === 0 && <Empty title="No new activity" hint="Grade, assignment, and due-date changes appear here after Canvas syncs." />}
-        {activity.events.map((e) => (
+        {activity.events.map((e) => {
+          const canvasUrl = e.type === 'ANNOUNCEMENT_POSTED' ? e.new_value?.html_url : e.assignment_id ? assignmentLinks.get(e.assignment_id) : null;
+          const safeCanvasUrl = typeof canvasUrl === 'string' && /^https:\/\//.test(canvasUrl) ? canvasUrl : null;
+          return (
           <div key={e.id} className="feed-item">
             <div className="feed-copy">
               <div className="feed-meta"><span className="feed-kind">{activityLabel(e)}</span><time dateTime={new Date(activityTime(e)).toISOString()}>{e.type === 'ANNOUNCEMENT_POSTED' ? 'Posted' : 'Detected'} {fmtDateTime(new Date(activityTime(e)).toISOString())}</time></div>
               <strong>{e.title}</strong>
               {e.message && <p className="muted">{e.message}</p>}
-              {e.type === 'ANNOUNCEMENT_POSTED' && typeof e.new_value?.html_url === 'string' && /^https:\/\//.test(e.new_value.html_url) && <a href={e.new_value.html_url} target="_blank" rel="noopener noreferrer">Open in Canvas ↗</a>}
+              {safeCanvasUrl && <a href={safeCanvasUrl} target="_blank" rel="noopener noreferrer">Open in Canvas ↗</a>}
             </div>
             <button type="button" className="feed-seen" aria-label={`Mark as seen: ${e.title}`} title="Mark as seen" onClick={() => void activity.markSeen(e)}>✓</button>
           </div>
-        ))}
+          );
+        })}
       </div>
     </main>
   );
