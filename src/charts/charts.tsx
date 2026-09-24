@@ -91,6 +91,20 @@ export interface Series {
   points: { t: string; score: number | null }[];
 }
 
+// Daily lines stay useful over a semester, but a marker for every unchanged
+// day turns a calm grade history into visual noise. Keep every point in the
+// line; on long ranges only mark the endpoints, changes, and weekly waypoints.
+function isVisibleMarker(points: { t: string; score: number | null }[], index: number): boolean {
+  if (points.length <= 45 || index === 0 || index === points.length - 1) return true;
+  const score = points[index].score;
+  const previous = points[index - 1]?.score;
+  if (score != null && previous != null && Math.abs(score - previous) >= 0.01) return true;
+  const start = new Date(points[0].t).getTime();
+  const before = new Date(points[index - 1].t).getTime();
+  const current = new Date(points[index].t).getTime();
+  return Math.floor((current - start) / 604_800_000) > Math.floor((before - start) / 604_800_000);
+}
+
 export function MultiLineChart({ series, width = 820, height = 340, onSelect, unit = '%' }: {
   series: Series[]; width?: number; height?: number; onSelect?: (id: string) => void; unit?: string;
 }) {
@@ -134,13 +148,16 @@ export function MultiLineChart({ series, width = 820, height = 340, onSelect, un
         const d = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(new Date(p.t).getTime()).toFixed(1)},${y(p.score as number).toFixed(1)}`).join(' ');
         return <path key={s.id} d={d} fill="none" stroke={s.color} strokeWidth="2.75" strokeLinecap="round" strokeLinejoin="round" opacity="0.94" />;
       })}
-      {series.map((s) => s.points.filter((p) => p.score != null).map((p, i) => (
+      {series.map((s) => {
+        const points = s.points.filter((p) => p.score != null);
+        return points.map((p, i) => !isVisibleMarker(points, i) ? null : (
         <circle key={`${s.id}-${i}`} cx={x(new Date(p.t).getTime())} cy={y(p.score as number)} r="2.6"
           fill={s.color} style={{ cursor: onSelect ? 'pointer' : 'default' }}
           onClick={() => onSelect?.(s.id)}>
           <title>{`${s.name}\n${new Date(p.t).toLocaleString()} — ${(p.score as number).toFixed(2)}${unit}`}</title>
         </circle>
-      )))}
+        ));
+      })}
     </svg>
   );
 }

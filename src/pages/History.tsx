@@ -5,7 +5,7 @@ import { fetchSnapshotsForCourses, useCourses } from '../hooks/useData';
 import { Card, Empty, Skeleton } from '../components/ui';
 import { MultiLineChart, SERIES_COLORS, type Series } from '../charts/charts';
 import { effectiveScore, overallGpa } from '../utils/gpa';
-import { buildGpaTimeline } from '../utils/history';
+import { buildGpaTimeline, latestSnapshotsPerDay } from '../utils/history';
 import type { CourseSnapshot, SyncRun } from '../models/types';
 
 type Range = '7D' | '30D' | 'Q' | 'S' | 'ALL';
@@ -51,14 +51,15 @@ export default function History() {
   const days = range === '7D' ? 7 : range === '30D' ? 30 : range === 'Q' ? 90 : range === 'S' ? 180 : 100000;
   const cutoff = Date.now() - days * 86400_000;
 
+  const dailySnapshots = useMemo(() => latestSnapshotsPerDay(snaps), [snaps]);
   const series: Series[] = useMemo(() => tracked.map((c, i) => ({
     id: c.id,
     name: c.name,
     color: SERIES_COLORS[i % SERIES_COLORS.length],
-    points: snaps
+    points: dailySnapshots
       .filter((s) => s.course_id === c.id && new Date(s.created_at).getTime() >= cutoff)
       .map((s) => ({ t: s.created_at, score: s.score })),
-  })), [tracked, snaps, cutoff]);
+  })), [tracked, dailySnapshots, cutoff]);
 
   const gpaSeries = useMemo(() => buildGpaTimeline(tracked, snaps, runs), [snaps, runs, courses]);
 
@@ -124,8 +125,8 @@ export default function History() {
               })}
             </div>
             <p className="muted" style={{ fontSize: 12 }}>
-              Hover any point for the exact grade and timestamp. Click a point or a legend chip to open that course.
-              Each point is one saved snapshot; more points appear as daily syncs accumulate.
+              Hover a marker for the final saved grade and timestamp for that day. Click a marker or a legend chip to open that course.
+              One point is shown per class per day; longer views mark weekly checkpoints and grade changes so the graph stays readable.
             </p>
           </>
         )}

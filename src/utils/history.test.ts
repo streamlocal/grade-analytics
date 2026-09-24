@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildGpaTimeline } from './history';
+import { buildGpaTimeline, latestSnapshotsPerDay } from './history';
 import type { Course, CourseSnapshot, SyncRun } from '../models/types';
 
 const base = '2026-09-22T12:00:00Z';
@@ -15,15 +15,21 @@ const run = (minute: number): SyncRun => ({ id: String(minute), status: 'complet
 describe('GPA history', () => {
   it('plots only completed, full-course syncs and connects later changes', () => {
     const points = buildGpaTimeline([course('a'), course('b')], [
-      snap('a', 1, 100), snap('b', 2, 80), snap('a', 12, 90), snap('b', 13, 80),
-    ], [run(1), run(3), run(14)]);
+      snap('a', 1, 100), snap('b', 2, 80), snap('a', 1442, 90), snap('b', 1443, 80),
+    ], [run(1), run(3), run(1444)]);
     expect(points).toHaveLength(2);
-    expect(points.map((point) => point.t)).toEqual([iso(3), iso(14)]);
+    expect(points.map((point) => point.t)).toEqual([iso(3), iso(1444)]);
     expect(points[0].score).toBeGreaterThan(points[1].score);
   });
   it('compares timestamps by instant, not by timezone-string order', () => {
     const first = snap('a', 1, 95);
     first.created_at = first.created_at.replace('Z', '+00:00');
     expect(buildGpaTimeline([course('a')], [first], [run(2)])).toHaveLength(1);
+  });
+  it('keeps only the final snapshot for a course on the same day', () => {
+    const snapshots = [snap('a', 1, 95), snap('a', 10, 96), snap('b', 11, 88)];
+    const daily = latestSnapshotsPerDay(snapshots);
+    expect(daily).toHaveLength(2);
+    expect(daily.find((point) => point.course_id === 'a')?.score).toBe(96);
   });
 });

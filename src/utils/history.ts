@@ -1,6 +1,37 @@
 import type { Course, CourseSnapshot, SyncRun } from '../models/types';
 import { overallGpa } from './gpa';
 
+// A sync can run several times in a short period. History is easier to read
+// when each course has one point per calendar day: the final saved grade that
+// day. Dates intentionally use the viewer's local calendar, which also matches
+// the dates printed on the chart axis and in the point tooltip.
+function localDay(timestamp: string): string | null {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return null;
+  return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+}
+
+export function latestSnapshotsPerDay(snapshots: CourseSnapshot[]): CourseSnapshot[] {
+  const latest = new Map<string, CourseSnapshot>();
+  for (const snapshot of snapshots) {
+    const day = localDay(snapshot.created_at);
+    const key = day ? `${snapshot.course_id}:${day}` : snapshot.id;
+    const prior = latest.get(key);
+    if (!prior || Date.parse(snapshot.created_at) >= Date.parse(prior.created_at)) latest.set(key, snapshot);
+  }
+  return [...latest.values()].sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
+}
+
+export function latestPointsPerDay(points: { t: string; score: number }[]): { t: string; score: number }[] {
+  const latest = new Map<string, { t: string; score: number }>();
+  for (const point of points) {
+    const key = localDay(point.t) ?? point.t;
+    const prior = latest.get(key);
+    if (!prior || Date.parse(point.t) >= Date.parse(prior.t)) latest.set(key, point);
+  }
+  return [...latest.values()].sort((a, b) => Date.parse(a.t) - Date.parse(b.t));
+}
+
 export function buildGpaTimeline(courses: Course[], snapshots: CourseSnapshot[], runs: SyncRun[]): { t: string; score: number }[] {
   const tracked = courses.filter((course) => course.tracked);
   if (!tracked.length) return [];
@@ -25,5 +56,5 @@ export function buildGpaTimeline(courses: Course[], snapshots: CourseSnapshot[],
     const score = overallGpa(tracked.map((course) => ({ score: latest.get(course.id) ?? null, level: course.level ?? 'Regular' })));
     if (score != null) points.push({ t: time, score });
   }
-  return points;
+  return latestPointsPerDay(points);
 }
