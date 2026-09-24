@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/AuthContext';
 import { supabase } from './services/supabaseClient';
@@ -27,7 +27,11 @@ function savedAppearance(): Appearance {
 
 function Shell() {
   const { session, loading } = useAuth();
-  const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
+  // Do not hold the whole app behind a cold backend check after sign-in.
+  // We still confirm the connection before starting a Canvas sync, and redirect
+  // accounts without one to setup as soon as that check completes.
+  const [needsSetup, setNeedsSetup] = useState(false);
+  const [connectionChecked, setConnectionChecked] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState('');
   const [appearance, setAppearance] = useState<Appearance>(savedAppearance);
@@ -88,15 +92,23 @@ function Shell() {
     await appearanceWrite.current;
   }
 
-  const checkSetup = useCallback(async () => {
-    if (!session) { setNeedsSetup(null); return; }
-    try {
-      const s = await api.connectionStatus();
-      setNeedsSetup(!s.connected);
-    } catch { setNeedsSetup(true); }
-  }, [session]);
-
-  useEffect(() => { checkSetup(); }, [checkSetup]);
+  useEffect(() => {
+    let active = true;
+    if (!session) {
+      setNeedsSetup(false);
+      setConnectionChecked(false);
+      return () => { active = false; };
+    }
+    setConnectionChecked(false);
+    void api.connectionStatus().then((status) => {
+      if (active) setNeedsSetup(!status.connected);
+    }).catch(() => {
+      if (active) setNeedsSetup(true);
+    }).finally(() => {
+      if (active) setConnectionChecked(true);
+    });
+    return () => { active = false; };
+  }, [session?.user.id]);
 
   useEffect(() => {
     if (!session) {
@@ -104,7 +116,7 @@ function Shell() {
       siteLoadSyncPromise = null;
       return;
     }
-    if (needsSetup !== false) return;
+    if (!connectionChecked || needsSetup) return;
     if (siteLoadSyncUser !== session.user.id) {
       siteLoadSyncUser = session.user.id;
       siteLoadSyncPromise = api.syncNow();
@@ -117,7 +129,7 @@ function Shell() {
       if (active) setSyncError(`Could not update Canvas on this load. Showing the last saved data. ${error instanceof Error ? error.message : ''}`);
     }).finally(() => { if (active) setSyncing(false); });
     return () => { active = false; };
-  }, [session?.user.id, needsSetup]);
+  }, [session?.user.id, connectionChecked, needsSetup]);
 
   async function syncNow() {
     setSyncing(true);
@@ -130,7 +142,7 @@ function Shell() {
     } finally { setSyncing(false); }
   }
 
-  if (loading || (session && needsSetup === null)) return <main><p className="muted">Loading…</p></main>;
+  if (loading) return <main><p className="muted">Loading…</p></main>;
   if (!session) return <Login />;
   if (needsSetup) return <Setup onDone={() => {
     siteLoadSyncUser = session.user.id;
