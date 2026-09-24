@@ -119,7 +119,7 @@ function Shell() {
     if (!connectionChecked || needsSetup) return;
     if (siteLoadSyncUser !== session.user.id) {
       siteLoadSyncUser = session.user.id;
-      siteLoadSyncPromise = api.syncNow();
+      siteLoadSyncPromise = api.quickSync();
     }
     let active = true;
     setSyncing(true);

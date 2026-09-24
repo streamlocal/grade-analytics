@@ -21,6 +21,9 @@ export const api = {
   connectionStatus: () => authedInvoke('lms-connect', { action: 'status' }),
   discoverCourses: () => authedInvoke('sync', { mode: 'discover' }),
   setTracked: (courseIds: string[]) => authedInvoke('sync', { mode: 'set-tracked', course_ids: courseIds }),
+  // A page-load refresh intentionally updates only grades and assignments.
+  // The fuller sync is reserved for the explicit button and the daily job.
+  quickSync: () => authedInvoke('sync', { mode: 'quick' }),
   syncNow: () => authedInvoke('sync', { mode: 'sync' }),
   exportData: () => authedInvoke('export-data', {}),
   deleteAllData: () => authedInvoke('delete-data', {}),
