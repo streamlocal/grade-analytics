@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { fmtPct } from '../utils/format';
 
 export function Sparkline({ points }: { points: (number | null)[] }) {
@@ -108,6 +109,7 @@ function isVisibleMarker(points: { t: string; score: number | null }[], index: n
 export function MultiLineChart({ series, width = 820, height = 340, onSelect, unit = '%' }: {
   series: Series[]; width?: number; height?: number; onSelect?: (id: string) => void; unit?: string;
 }) {
+  const [hover, setHover] = useState<{ x: number; y: number; text: string } | null>(null);
   const nums = series.flatMap((s) => s.points.map((p) => p.score)).filter((v): v is number => v != null);
   const times = series.flatMap((s) => s.points.map((p) => new Date(p.t).getTime())).filter((t) => !Number.isNaN(t));
   if (nums.length < 2 || times.length < 2) {
@@ -151,13 +153,22 @@ export function MultiLineChart({ series, width = 820, height = 340, onSelect, un
       {series.map((s) => {
         const points = s.points.filter((p) => p.score != null);
         return points.map((p, i) => !isVisibleMarker(points, i) ? null : (
-        <circle key={`${s.id}-${i}`} cx={x(new Date(p.t).getTime())} cy={y(p.score as number)} r="2.6"
+        <circle key={`${s.id}-${i}`} cx={x(new Date(p.t).getTime())} cy={y(p.score as number)} r="4.5"
           fill={s.color} style={{ cursor: onSelect ? 'pointer' : 'default' }}
-          onClick={() => onSelect?.(s.id)}>
-          <title>{`${s.name}\n${new Date(p.t).toLocaleString()} — ${(p.score as number).toFixed(2)}${unit}`}</title>
-        </circle>
+          aria-label={`${s.name}: ${(p.score as number).toFixed(2)}${unit} on ${new Date(p.t).toLocaleString()}`}
+          onPointerEnter={() => setHover({ x: x(new Date(p.t).getTime()), y: y(p.score as number), text: `${new Date(p.t).toLocaleString()} · ${(p.score as number).toFixed(2)}${unit}` })}
+          onPointerLeave={() => setHover(null)} onClick={() => onSelect?.(s.id)} />
         ));
       })}
+      {hover && (() => {
+        const tooltipWidth = 208;
+        const tooltipX = Math.max(pad.l, Math.min(hover.x - tooltipWidth / 2, width - pad.r - tooltipWidth));
+        const tooltipY = hover.y < pad.t + 42 ? hover.y + 12 : hover.y - 37;
+        return <g pointerEvents="none">
+          <rect x={tooltipX} y={tooltipY} width={tooltipWidth} height="26" rx="5" fill="var(--text)" opacity="0.94" />
+          <text x={tooltipX + 10} y={tooltipY + 17} fontSize="11" fill="var(--card)">{hover.text}</text>
+        </g>;
+      })()}
     </svg>
   );
 }

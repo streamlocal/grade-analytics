@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildGpaTimeline, latestSnapshotsPerDay } from './history';
+import { buildGpaTimeline, collapseUnchangedSnapshots } from './history';
 import type { Course, CourseSnapshot, SyncRun } from '../models/types';
 
 const base = '2026-09-22T12:00:00Z';
@@ -26,10 +26,11 @@ describe('GPA history', () => {
     first.created_at = first.created_at.replace('Z', '+00:00');
     expect(buildGpaTimeline([course('a')], [first], [run(2)])).toHaveLength(1);
   });
-  it('keeps only the final snapshot for a course on the same day', () => {
-    const snapshots = [snap('a', 1, 95), snap('a', 10, 96), snap('b', 11, 88)];
-    const daily = latestSnapshotsPerDay(snapshots);
-    expect(daily).toHaveLength(2);
-    expect(daily.find((point) => point.course_id === 'a')?.score).toBe(96);
+  it('merges unchanged snapshots while keeping every grade change', () => {
+    const snapshots = [snap('a', 1, 95), snap('a', 10, 95), snap('a', 15, 96), snap('a', 60, 96)];
+    const collapsed = collapseUnchangedSnapshots(snapshots);
+    expect(collapsed).toHaveLength(2);
+    expect(collapsed.map((point) => point.score)).toEqual([95, 96]);
+    expect(collapsed.map((point) => point.created_at)).toEqual([iso(10), iso(60)]);
   });
 });
