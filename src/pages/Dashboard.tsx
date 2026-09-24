@@ -71,6 +71,8 @@ export default function Dashboard() {
   const scored = tracked.map((c) => effectiveScore(c)).filter((v): v is number => v != null);
   const avg = scored.length ? scored.reduce((a, b) => a + b, 0) / scored.length : null;
   const gpa = overallGpa(tracked.map((c) => ({ score: effectiveScore(c), level: c.level ?? 'Regular' })));
+  // Put the most actionable card in the left-hand, first-read position.
+  const priorityOrder = needsAttention.length ? ['attention', 'upcoming'] as const : ['upcoming', 'attention'] as const;
 
   if (loading) return <main><Skeleton lines={6} /></main>;
   if (error) return <main><div className="error">{error}</div></main>;
@@ -90,24 +92,27 @@ export default function Dashboard() {
       </div>
 
       <div className="dashboard-priority">
-        <Card>
-          <div className="priority-heading"><h2>Needs attention</h2><Link to="/assignments?view=attention">View assignments ↗</Link></div>
-          {needsAttention.length ? needsAttention.slice(0, 3).map((a) => (
-            <div className="priority-item" key={a.id}>
-              <span><strong>{a.name}</strong><small>{tracked.find((c) => c.id === a.course_id)?.name ?? 'Course'}</small></span>
-              <span className="status-pill danger">{a.missing ? 'Missing' : 'Overdue'}</span>
-            </div>
-          )) : !assignmentsError && <p className="muted priority-empty">{assignmentsLoading ? 'Loading assignments…' : 'You’re caught up.'}</p>}
-        </Card>
-        <Card>
-          <div className="priority-heading"><h2>Due soon</h2><Link to="/assignments?view=upcoming">View assignments ↗</Link></div>
-          {dueSoon.length ? dueSoon.slice(0, 3).map((a) => (
-            <div className="priority-item" key={a.id}>
-              <span><strong>{a.name}</strong><small>{tracked.find((c) => c.id === a.course_id)?.name ?? 'Course'}</small></span>
-              <span className="priority-date">{new Date(a.due_at!).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
-            </div>
-          )) : !assignmentsError && <p className="muted priority-empty">{assignmentsLoading ? 'Loading assignments…' : 'No open assignments due in the next 14 days.'}</p>}
-        </Card>
+        {priorityOrder.map((section) => section === 'attention' ? (
+          <Card key="attention">
+            <div className="priority-heading"><h2>Needs attention</h2><Link to="/assignments?view=attention">View assignments ↗</Link></div>
+            {needsAttention.length ? needsAttention.slice(0, 3).map((a) => (
+              <div className="priority-item" key={a.id}>
+                <span><strong>{a.name}</strong><small>{tracked.find((c) => c.id === a.course_id)?.name ?? 'Course'}</small></span>
+                <span className="status-pill danger">{a.missing ? 'Missing' : 'Overdue'}</span>
+              </div>
+            )) : !assignmentsError && <p className="muted priority-empty">{assignmentsLoading ? 'Loading assignments…' : 'You’re caught up.'}</p>}
+          </Card>
+        ) : (
+          <Card key="upcoming">
+            <div className="priority-heading"><h2>Due soon</h2><Link to="/assignments?view=upcoming">View assignments ↗</Link></div>
+            {dueSoon.length ? dueSoon.slice(0, 3).map((a) => (
+              <div className="priority-item" key={a.id}>
+                <span><strong>{a.name}</strong><small>{tracked.find((c) => c.id === a.course_id)?.name ?? 'Course'}</small></span>
+                <span className="priority-date">{new Date(a.due_at!).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+              </div>
+            )) : !assignmentsError && <p className="muted priority-empty">{assignmentsLoading ? 'Loading assignments…' : 'No open assignments due in the next 14 days.'}</p>}
+          </Card>
+        ))}
       </div>
 
       <div className="section-heading classes-heading">
