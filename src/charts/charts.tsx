@@ -101,9 +101,14 @@ export function MultiLineChart({ series, width = 820, height = 340, onSelect, un
   }
   const tMin = Math.min(...times), tMax = Math.max(...times);
   const tSpan = Math.max(tMax - tMin, 1);
-  const min = Math.min(...nums), max = Math.max(...nums);
-  const span = Math.max(max - min, 1);
-  const pad = { l: 46, r: 14, t: 14, b: 28 };
+  const rawMin = Math.min(...nums), rawMax = Math.max(...nums);
+  const isGpa = unit === '';
+  const minSpan = isGpa ? 0.1 : 1;
+  const padding = Math.max((rawMax - rawMin) * 0.12, isGpa ? 0.015 : 0.2);
+  const middle = (rawMin + rawMax) / 2;
+  const span = Math.max(rawMax - rawMin + padding * 2, minSpan);
+  const min = middle - span / 2, max = middle + span / 2;
+  const pad = { l: isGpa ? 54 : 46, r: 14, t: 14, b: 28 };
   const iw = width - pad.l - pad.r;
   const ih = height - pad.t - pad.b;
   const x = (t: number) => pad.l + ((t - tMin) / tSpan) * iw;
@@ -117,7 +122,7 @@ export function MultiLineChart({ series, width = 820, height = 340, onSelect, un
         return (
           <g key={f}>
             <line x1={pad.l} x2={pad.l + iw} y1={y(v)} y2={y(v)} stroke="currentColor" strokeOpacity="0.1" />
-            <text x={4} y={y(v) + 4} fontSize="11" fill="currentColor" opacity="0.7">{v.toFixed(1)}{unit}</text>
+            <text x={4} y={y(v) + 4} fontSize="11" fill="currentColor" opacity="0.7">{v.toFixed(isGpa ? 3 : 1)}{unit}</text>
           </g>
         );
       })}
@@ -127,7 +132,7 @@ export function MultiLineChart({ series, width = 820, height = 340, onSelect, un
         const pts = s.points.filter((p) => p.score != null);
         if (pts.length < 2) return null;
         const d = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(new Date(p.t).getTime()).toFixed(1)},${y(p.score as number).toFixed(1)}`).join(' ');
-        return <path key={s.id} d={d} fill="none" stroke={s.color} strokeWidth="2.25" strokeLinejoin="round" opacity="0.92" />;
+        return <path key={s.id} d={d} fill="none" stroke={s.color} strokeWidth="2.75" strokeLinecap="round" strokeLinejoin="round" opacity="0.94" />;
       })}
       {series.map((s) => s.points.filter((p) => p.score != null).map((p, i) => (
         <circle key={`${s.id}-${i}`} cx={x(new Date(p.t).getTime())} cy={y(p.score as number)} r="2.6"

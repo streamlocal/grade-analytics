@@ -25,6 +25,20 @@ function detectLevel(name: string): 'Regular' | 'Honors' | 'AP' | 'Free' {
   return 'Regular';
 }
 
+async function stableAnnouncementId(userId: string, courseId: string, announcementId: string): Promise<string> {
+  const input = new TextEncoder().encode(`canvas-announcement:${userId}:${courseId}:${announcementId}`);
+  const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', input)).slice(0, 16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x50;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+function announcementPreview(html: string): string {
+  return html.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/\s+/g, ' ').trim().slice(0, 260);
+}
+
 Deno.serve(async (req) => {
   const pre = preflight(req);
   if (pre) return pre;
@@ -116,6 +130,7 @@ Deno.serve(async (req) => {
 
     await setStage('Fetching assignments');
     const events: unknown[] = [];
+    const trackedCourses: { lmsId: string; id: string; name: string }[] = [];
 
     for (const lc of lmsCourses) {
       const prev = prevByLms.get(lc.lmsCourseId);
@@ -133,6 +148,7 @@ Deno.serve(async (req) => {
       const courseId = (up as { id: string } | null)?.id;
       const tracked = (up as { tracked: boolean } | null)?.tracked ?? true;
       if (!courseId || !tracked) continue;
+      trackedCourses.push({ lmsId: lc.lmsCourseId, id: courseId, name: lc.name });
 
       const gEvent = detectCourseGradeChange(lc.name, courseId, prev?.current_score ?? null, lc.currentScore);
       if (gEvent && prev) {
@@ -155,8 +171,8 @@ Deno.serve(async (req) => {
       await admin.from('courses').update({ categories: fetched.categories }).eq('id', courseId);
       const { data: prevAssign } = await admin.from('assignments').select('*').eq('course_id', courseId);
       const prevMap = new Map(((prevAssign ?? []) as Record<string, unknown>[]).map((a) => {
-        const r = a as { id: string; lms_assignment_id: string; name: string; score: number | null; points_possible: number | null; missing: boolean; due_at: string | null };
-        return [`${courseId}:${r.lms_assignment_id}`, { id: r.id, name: r.name, score: r.score, points: r.points_possible, missing: r.missing, dueAt: r.due_at }];
+        const r = a as { id: string; lms_assignment_id: string; name: string; score: number | null; points_possible: number | null; missing: boolean; due_at: string | null; submitted_at: string | null };
+        return [`${courseId}:${r.lms_assignment_id}`, { id: r.id, name: r.name, score: r.score, points: r.points_possible, missing: r.missing, dueAt: r.due_at, submittedAt: r.submitted_at }];
       }));
 
       const nextList: NextAssign[] = [];
@@ -177,7 +193,7 @@ Deno.serve(async (req) => {
         nextList.push({
           key: `${courseId}:${la.lmsAssignmentId}`, id: aid, name: la.name,
           score: la.score, points: la.pointsPossible, missing: la.missing,
-          dueAt: la.dueAt, courseId, courseName: lc.name,
+          dueAt: la.dueAt, submittedAt: la.submittedAt, courseId, courseName: lc.name,
         });
       }
       // Skip change detection on a course's first sync — otherwise every
@@ -191,6 +207,32 @@ Deno.serve(async (req) => {
 
     await setStage('Comparing data');
     if (events.length) await admin.from('activity_events').insert(events);
+    let announcementErrors = 0;
+    if (provider.fetchAnnouncements) {
+      await setStage('Fetching announcements');
+      const since = new Date(Date.now() - 7 * 86400_000).toISOString();
+      for (const course of trackedCourses) {
+        try {
+          const announcements = await provider.fetchAnnouncements(cred.base_url, token, course.lmsId, since);
+          for (const item of announcements) {
+            const postedAt = new Date(item.postedAt).getTime();
+            if (!Number.isFinite(postedAt) || postedAt < Date.now() - 7 * 86400_000 || postedAt > Date.now()) continue;
+            const id = await stableAnnouncementId(userId, course.lmsId, item.lmsAnnouncementId);
+            const preview = announcementPreview(item.message);
+            const { error: insertError } = await admin.from('activity_events').upsert({
+              id, user_id: userId, type: 'ANNOUNCEMENT_POSTED', course_id: course.id,
+              title: item.title, message: preview ? `${course.name} · ${preview}` : course.name,
+              old_value: null,
+              new_value: { posted_at: item.postedAt, html_url: item.htmlUrl },
+            }, { onConflict: 'id', ignoreDuplicates: true });
+            if (insertError) throw insertError;
+          }
+        } catch (error) {
+          announcementErrors++;
+          console.warn('Could not fetch announcements for a course', course.lmsId, error);
+        }
+      }
+    }
     await setStage('Updating history');
     await admin.from('lms_credentials').update({ last_verified: new Date().toISOString() }).eq('user_id', userId);
 
@@ -199,7 +241,7 @@ Deno.serve(async (req) => {
         status: 'complete', stage: 'Complete', finished_at: new Date().toISOString(),
       }).eq('id', runId);
     }
-    return json({ ok: true, events: events.length, courses: lmsCourses.length });
+    return json({ ok: true, events: events.length, courses: lmsCourses.length, announcement_errors: announcementErrors });
   } catch (e) {
     // Never erase last good data on failure — just record the failed run.
     if (runId) {

@@ -1,4 +1,4 @@
-import type { LMSProvider, NormCategory, NormCourse } from './types.ts';
+import type { LMSProvider, NormAnnouncement, NormCategory, NormCourse } from './types.ts';
 import { canvasFetch } from './types.ts';
 
 // Canvas provider. Default host: https://saintignatius.instructure.com
@@ -73,5 +73,37 @@ export const canvasProvider: LMSProvider = {
     });
 
     return { assignments: list, categories };
+  },
+
+  async fetchAnnouncements(baseUrl, token, lmsCourseId, since): Promise<NormAnnouncement[]> {
+    const origin = new URL(baseUrl).origin;
+    const url = new URL('/api/v1/announcements', origin);
+    url.searchParams.append('context_codes[]', `course_${lmsCourseId}`);
+    url.searchParams.set('start_date', since);
+    url.searchParams.set('end_date', new Date().toISOString());
+    url.searchParams.set('per_page', '100');
+    const results: NormAnnouncement[] = [];
+    let next: string | null = url.toString();
+    while (next) {
+      // Never forward a Canvas token to a pagination URL on another host.
+      if (new URL(next).origin !== origin) throw new Error('Canvas pagination changed origin.');
+      const response = await fetch(next, { headers: { Authorization: `Bearer ${token}` } });
+      if (!response.ok) throw new Error(`Canvas announcements API error ${response.status}`);
+      const page = await response.json();
+      for (const item of Array.isArray(page) ? page : []) {
+        if (item.id == null || !item.posted_at) continue;
+        results.push({
+          lmsAnnouncementId: String(item.id), lmsCourseId,
+          title: String(item.title ?? 'Announcement'),
+          message: String(item.message ?? ''),
+          postedAt: String(item.posted_at),
+          htmlUrl: typeof item.html_url === 'string' && new URL(item.html_url, origin).origin === origin ? item.html_url : null,
+        });
+      }
+      const link = response.headers.get('link') ?? '';
+      const match = link.match(/<([^>]+)>;\s*rel="next"/);
+      next = match ? new URL(match[1], origin).toString() : null;
+    }
+    return results;
   },
 };

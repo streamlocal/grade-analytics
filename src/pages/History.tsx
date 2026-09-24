@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../services/supabaseClient';
-import { useCourses } from '../hooks/useData';
+import { fetchSnapshotsForCourses, useCourses } from '../hooks/useData';
 import { Card, Empty, Skeleton } from '../components/ui';
 import { MultiLineChart, SERIES_COLORS, type Series } from '../charts/charts';
-import { effectiveScore, overallGpa, type CourseLevel } from '../utils/gpa';
-import type { CourseSnapshot } from '../models/types';
+import { effectiveScore, overallGpa } from '../utils/gpa';
+import { buildGpaTimeline } from '../utils/history';
+import type { CourseSnapshot, SyncRun } from '../models/types';
 
 type Range = '7D' | '30D' | 'Q' | 'S' | 'ALL';
 
@@ -13,16 +14,38 @@ export default function History() {
   const { courses, loading } = useCourses();
   const navigate = useNavigate();
   const [snaps, setSnaps] = useState<CourseSnapshot[]>([]);
+  const [runs, setRuns] = useState<SyncRun[]>([]);
+  const [refresh, setRefresh] = useState(0);
   const [range, setRange] = useState<Range>('30D');
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [mode, setMode] = useState<'classes' | 'gpa'>('classes');
 
   useEffect(() => {
+    const reload = () => setRefresh((value) => value + 1);
+    window.addEventListener('ga-sync-complete', reload);
+    return () => window.removeEventListener('ga-sync-complete', reload);
+  }, []);
+
+  useEffect(() => {
     const ids = courses.filter((c) => c.tracked).map((c) => c.id);
-    if (!ids.length) return;
-    supabase.from('course_snapshots').select('*').in('course_id', ids).order('created_at')
-      .then(({ data }) => setSnaps((data ?? []) as CourseSnapshot[]));
-  }, [courses]);
+    let cancelled = false;
+    if (!ids.length) { setSnaps([]); setRuns([]); return; }
+    async function load() {
+      const snapshots = await fetchSnapshotsForCourses(ids);
+      const completed: SyncRun[] = [];
+      const pageSize = 500;
+      for (let offset = 0; ; offset += pageSize) {
+        const { data, error } = await supabase.from('sync_runs').select('*').eq('status', 'complete')
+          .order('finished_at').range(offset, offset + pageSize - 1);
+        if (error) throw error;
+        completed.push(...((data ?? []) as SyncRun[]));
+        if (!data || data.length < pageSize) break;
+      }
+      if (!cancelled) { setSnaps(snapshots); setRuns(completed); }
+    }
+    void load().catch(() => { if (!cancelled) { setSnaps([]); setRuns([]); } });
+    return () => { cancelled = true; };
+  }, [courses, refresh]);
 
   const tracked = courses.filter((c) => c.tracked);
   const days = range === '7D' ? 7 : range === '30D' ? 30 : range === 'Q' ? 90 : range === 'S' ? 180 : 100000;
@@ -37,25 +60,15 @@ export default function History() {
       .map((s) => ({ t: s.created_at, score: s.score })),
   })), [tracked, snaps, cutoff]);
 
-  // Total GPA over time: for each snapshot time, take each course's most recent
-  // snapshot up to that time and average the Ignatius quality points.
-  const gpaSeries = useMemo(() => {
-    const times = [...new Set(snaps.map((s) => s.created_at))].sort();
-    const byCourse: Record<string, CourseSnapshot[]> = {};
-    for (const s of snaps) (byCourse[s.course_id] ??= []).push(s);
-    for (const k in byCourse) byCourse[k].sort((a, b) => a.created_at.localeCompare(b.created_at));
-    return times.map((t) => {
-      const classes = tracked.map((c) => {
-        const upto = (byCourse[c.id] ?? []).filter((s) => s.created_at <= t);
-        const latest = upto.length ? upto[upto.length - 1] : null;
-        return { score: latest?.score ?? null, level: (c.level ?? 'Regular') as CourseLevel };
-      });
-      return { t, score: overallGpa(classes) };
-    }).filter((p): p is { t: string; score: number } => p.score != null);
-  }, [snaps, tracked]);
+  const gpaSeries = useMemo(() => buildGpaTimeline(tracked, snaps, runs), [snaps, runs, courses]);
 
   const visible = series.filter((s) => !hidden.has(s.id));
-  const rangeGpa = gpaSeries.filter((p) => new Date(p.t).getTime() >= cutoff);
+  const inRangeGpa = gpaSeries.filter((point) => new Date(point.t).getTime() >= cutoff);
+  const olderGpa = gpaSeries.filter((point) => new Date(point.t).getTime() < cutoff);
+  const beforeRangeGpa = olderGpa[olderGpa.length - 1];
+  const rangeGpa = beforeRangeGpa && inRangeGpa.length && range !== 'ALL'
+    ? [{ t: new Date(cutoff).toISOString(), score: beforeRangeGpa.score }, ...inRangeGpa]
+    : inRangeGpa;
   const currentGpa = overallGpa(tracked.map((c) => ({ score: effectiveScore(c), level: c.level ?? 'Regular' })));
 
   if (loading) return <main><Skeleton lines={6} /></main>;

@@ -47,6 +47,7 @@ export interface PrevAssign {
   points: number | null;
   missing: boolean;
   dueAt: string | null;
+  submittedAt: string | null;
 }
 
 export interface NextAssign extends PrevAssign {
@@ -87,11 +88,18 @@ export function detectAssignmentChanges(prev: Map<string, PrevAssign>, next: Nex
         oldValue: { score: p.score }, newValue: { score: n.score },
       });
     }
-    if (p.missing && !n.missing) {
+    if (p.missing && !n.missing && !p.submittedAt && n.submittedAt) {
       out.push({
         type: 'ASSIGNMENT_SUBMITTED', courseId: n.courseId, assignmentId: n.id,
         title: `Previously missing "${n.name}" was submitted`,
         message: `A previously missing ${n.courseName} assignment ("${n.name}") was submitted.`,
+        oldValue: { missing: true }, newValue: { missing: false },
+      });
+    } else if (p.missing && !n.missing) {
+      out.push({
+        type: 'ASSIGNMENT_NO_LONGER_MISSING', courseId: n.courseId, assignmentId: n.id,
+        title: `"${n.name}" is no longer marked missing`,
+        message: `${n.courseName}: Canvas no longer marks "${n.name}" as missing.`,
         oldValue: { missing: true }, newValue: { missing: false },
       });
     } else if (!p.missing && n.missing) {

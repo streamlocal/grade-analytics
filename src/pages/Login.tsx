@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { useAuth } from '../hooks/AuthContext';
 
@@ -6,12 +6,29 @@ export default function Login() {
   const { remember, setRemember } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [msg, setMsg] = useState<string | null>(null);
+  const [showSignInHelp, setShowSignInHelp] = useState(false);
   const [busy, setBusy] = useState(false);
+  const createAccountButton = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!showSignInHelp) return;
+    createAccountButton.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setShowSignInHelp(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [showSignInHelp]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (mode === 'signup' && password !== confirmPassword) {
+      setMsg('Passwords do not match. Please enter the same password twice.');
+      return;
+    }
     setBusy(true); setMsg(null);
     try {
       if (mode === 'signin') {
@@ -25,7 +42,12 @@ export default function Login() {
         }
       }
     } catch (err: unknown) {
-      setMsg(err instanceof Error ? err.message : 'Sign-in failed.');
+      const message = err instanceof Error ? err.message : 'Sign-in failed.';
+      if (mode === 'signin' && /invalid login credentials|invalid credentials/i.test(message)) {
+        setShowSignInHelp(true);
+      } else {
+        setMsg(message);
+      }
     } finally {
       setBusy(false);
     }
@@ -45,16 +67,21 @@ export default function Login() {
             <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required
               autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} minLength={6} />
           </label>
+          {mode === 'signup' && <label>Confirm password
+            <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required
+              autoComplete="new-password" minLength={6} aria-invalid={confirmPassword.length > 0 && confirmPassword !== password} />
+          </label>}
+          {mode === 'signup' && confirmPassword.length > 0 && confirmPassword !== password && <p className="error" role="status">Passwords must match.</p>}
           <label className="row" style={{ flexDirection: 'row' }}>
             <input type="checkbox" style={{ width: 18 }} checked={remember}
               onChange={(e) => { void setRemember(e.target.checked); }} />
             Remember this device (default ON)
           </label>
           <div className="row auth-actions">
-            <button className="btn primary" disabled={busy}>
+            <button className="btn primary" disabled={busy || (mode === 'signup' && password !== confirmPassword)}>
               {busy ? 'Working…' : mode === 'signin' ? 'Sign in' : 'Create account'}
             </button>
-            <button type="button" className="btn ghost" onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setMsg(null); }}>
+            <button type="button" className="btn ghost" onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setMsg(null); setShowSignInHelp(false); }}>
               {mode === 'signin' ? 'Need an account?' : 'Have an account?'}
             </button>
           </div>
@@ -67,6 +94,16 @@ export default function Login() {
           </a>.
         </p>
       </div>
+      {showSignInHelp && <div className="auth-dialog-backdrop" onClick={() => setShowSignInHelp(false)}>
+        <div className="auth-dialog card" role="alertdialog" aria-modal="true" aria-labelledby="signin-help-title" aria-describedby="signin-help-description" onClick={(e) => e.stopPropagation()}>
+          <h2 id="signin-help-title">Couldn’t sign in</h2>
+          <p id="signin-help-description">We couldn’t recognize that email and password together. Check both entries, or create an account if you’re new here.</p>
+          <div className="auth-dialog-actions">
+            <button ref={createAccountButton} type="button" className="btn primary" onClick={() => { setMode('signup'); setPassword(''); setConfirmPassword(''); setShowSignInHelp(false); }}>Create account</button>
+            <button type="button" className="btn" onClick={() => setShowSignInHelp(false)}>Try again</button>
+          </div>
+        </div>
+      </div>}
     </main>
   );
 }

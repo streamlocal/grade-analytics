@@ -15,6 +15,8 @@ import Compare from './pages/Compare';
 import Settings from './pages/Settings';
 
 export type Appearance = 'current' | 'old' | 'glass' | 'paper';
+let siteLoadSyncUser: string | null = null;
+let siteLoadSyncPromise: Promise<unknown> | null = null;
 
 function savedAppearance(): Appearance {
   const value = localStorage.getItem('ga-appearance');
@@ -27,6 +29,7 @@ function Shell() {
   const { session, loading } = useAuth();
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState('');
   const [appearance, setAppearance] = useState<Appearance>(savedAppearance);
   const [appearanceError, setAppearanceError] = useState('');
   const appearanceWrite = useRef<Promise<void>>(Promise.resolve());
@@ -95,11 +98,33 @@ function Shell() {
 
   useEffect(() => { checkSetup(); }, [checkSetup]);
 
+  useEffect(() => {
+    if (!session) {
+      siteLoadSyncUser = null;
+      siteLoadSyncPromise = null;
+      return;
+    }
+    if (needsSetup !== false) return;
+    if (siteLoadSyncUser !== session.user.id) {
+      siteLoadSyncUser = session.user.id;
+      siteLoadSyncPromise = api.syncNow();
+    }
+    let active = true;
+    setSyncing(true);
+    void siteLoadSyncPromise!.then(() => {
+      if (active) window.dispatchEvent(new Event('ga-sync-complete'));
+    }).catch((error) => {
+      if (active) setSyncError(`Could not update Canvas on this load. Showing the last saved data. ${error instanceof Error ? error.message : ''}`);
+    }).finally(() => { if (active) setSyncing(false); });
+    return () => { active = false; };
+  }, [session?.user.id, needsSetup]);
+
   async function syncNow() {
     setSyncing(true);
     try {
       await api.syncNow();
-      location.reload();
+      setSyncError('');
+      window.dispatchEvent(new Event('ga-sync-complete'));
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Sync failed. Previous data kept.');
     } finally { setSyncing(false); }
@@ -107,12 +132,17 @@ function Shell() {
 
   if (loading || (session && needsSetup === null)) return <main><p className="muted">Loading…</p></main>;
   if (!session) return <Login />;
-  if (needsSetup) return <Setup onDone={() => setNeedsSetup(false)} />;
+  if (needsSetup) return <Setup onDone={() => {
+    siteLoadSyncUser = session.user.id;
+    siteLoadSyncPromise = Promise.resolve();
+    setNeedsSetup(false);
+  }} />;
 
   return (
     <div className="workspace">
       <TopBar onSync={syncNow} syncing={syncing} />
       <div className="workspace-main">
+        {syncError && <div className="site-sync-error error" role="status">{syncError}</div>}
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/course/:id" element={<CourseDetail />} />

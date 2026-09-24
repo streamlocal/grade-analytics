@@ -50,7 +50,7 @@ export interface ActivityEvent {
   title: string;
   message: string;
   old_value: Record<string, unknown> | null;
-  new_value: Record<string, unknown> | null;
+  new_value: (Record<string, unknown> & { posted_at?: string; html_url?: string; acknowledged_at?: string }) | null;
   created_at: string;
 }
 

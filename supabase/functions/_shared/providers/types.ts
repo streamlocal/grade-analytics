@@ -32,6 +32,15 @@ export interface NormCategory {
   weight: number;
 }
 
+export interface NormAnnouncement {
+  lmsAnnouncementId: string;
+  lmsCourseId: string;
+  title: string;
+  message: string;
+  postedAt: string;
+  htmlUrl: string | null;
+}
+
 export interface LMSProvider {
   name: string;
   testConnection(baseUrl: string, token: string): Promise<{ userName: string }>;
@@ -40,6 +49,7 @@ export interface LMSProvider {
     assignments: NormAssignment[];
     categories: NormCategory[];
   }>;
+  fetchAnnouncements?(baseUrl: string, token: string, lmsCourseId: string, since: string): Promise<NormAnnouncement[]>;
 }
 
 export async function canvasFetch(baseUrl: string, token: string, path: string) {

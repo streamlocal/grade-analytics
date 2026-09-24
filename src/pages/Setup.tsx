@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api } from '../services/api';
 import { SyncHelp } from '../components/ui';
+import CanvasTokenGuide from '../components/CanvasTokenGuide';
 
 const DEFAULT_BASE = 'https://saintignatius.instructure.com';
 
@@ -48,23 +49,18 @@ export default function Setup({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <main className="auth-page">
+    <main className="auth-page setup-page">
       <div className="auth-intro"><span className="auth-mark" aria-hidden="true"><i /><i /><i /><i /></span><span>GRADE ANALYTICS</span></div>
-      <div className="card form auth-card">
+      <div className="card form auth-card setup-card">
         <h2>Welcome — connect Canvas</h2>
         <p className="muted" role="status">{status}</p>
         {step === 1 && (
           <>
             <label>Canvas URL<input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={DEFAULT_BASE} /></label>
-            <label>API token (sent to Edge Function, encrypted at rest, never stored in browser)<input type="password" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" /></label>
-            <p className="muted auth-help">
-              Need a token? Open{' '}
-              <a href="https://saintignatius.instructure.com/profile/settings" target="_blank" rel="noreferrer">
-                Canvas Profile Settings
-              </a>{' '}
-              and create an access token.
-            </p>
+            <label>Canvas API token<input type="password" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" placeholder="Paste the token from Canvas" /></label>
+            <p className="muted setup-token-note">Your token goes to the secure connection service and is encrypted; it is never saved in this browser.</p>
             <button className="btn primary" disabled={busy || !token} onClick={saveAndTest}>Save &amp; test connection</button>
+            <CanvasTokenGuide />
           </>
         )}
         {step === 2 && (

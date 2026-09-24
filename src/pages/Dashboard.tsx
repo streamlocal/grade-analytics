@@ -7,11 +7,12 @@ import { Sparkline } from '../charts/charts';
 import { delta, deltaClass, fmtDateTime, fmtPct, letterFor, scoreAt, isSubmitted } from '../utils/format';
 import { overallGpa, qualityPoints, effectiveScore, roundedGpaPercent } from '../utils/gpa';
 import type { CourseSnapshot } from '../models/types';
+import { activityLabel, activityTime } from '../utils/activity';
 
 type TrendDays = 1 | 7 | 30;
 const trendDays: TrendDays[] = [1, 7, 30];
 
-function useAllSnapshots(courseIds: string[]) {
+function useAllSnapshots(courseIds: string[], refresh: number) {
   const [map, setMap] = useState<Record<string, CourseSnapshot[]>>({});
   useEffect(() => {
     let cancelled = false;
@@ -26,7 +27,7 @@ function useAllSnapshots(courseIds: string[]) {
         setMap(m);
       }).catch(() => { if (!cancelled) setMap({}); });
     return () => { cancelled = true; };
-  }, [courseIds.join(',')]);
+  }, [courseIds.join(','), refresh]);
   return map;
 }
 
@@ -34,12 +35,19 @@ export default function Dashboard() {
   const [allTrendDays, setAllTrendDays] = useState<TrendDays>(7);
   const [courseTrendDays, setCourseTrendDays] = useState<Record<string, TrendDays>>({});
   const [now, setNow] = useState(() => Date.now());
+  const [snapshotRefresh, setSnapshotRefresh] = useState(0);
   const { courses, loading, error } = useCourses();
   const { assignments, loading: assignmentsLoading, error: assignmentsError } = useAssignments();
-  const events = useActivity(20);
-  const lastSync = useLastSync();
+  const activity = useActivity();
+  const { run: lastSync } = useLastSync();
   const tracked = useMemo(() => courses.filter((c) => c.tracked), [courses]);
-  const snaps = useAllSnapshots(tracked.map((c) => c.id));
+  const snaps = useAllSnapshots(tracked.map((c) => c.id), snapshotRefresh);
+
+  useEffect(() => {
+    const reload = () => setSnapshotRefresh((value) => value + 1);
+    window.addEventListener('ga-sync-complete', reload);
+    return () => window.removeEventListener('ga-sync-complete', reload);
+  }, []);
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(Date.now()), 60_000);
@@ -138,14 +146,20 @@ export default function Dashboard() {
         })}
       </div>
 
-      <div className="section-heading"><h2>Activity</h2></div>
+      <div className="section-heading activity-heading"><div><h2>Activity</h2><p className="muted">Last 24 hours · Unseen announcements stay for up to 7 days</p></div></div>
       <div className="feed">
-        {events.length === 0 && <Empty title="No activity yet" hint="Sync twice and changes will appear here." />}
-        {events.map((e) => (
+        {activity.error && <div className="error" role="alert">{activity.error}</div>}
+        {activity.loading && <p className="muted" role="status">Loading activity…</p>}
+        {!activity.loading && activity.events.length === 0 && <Empty title="No new activity" hint="Grade, assignment, and due-date changes appear here after Canvas syncs." />}
+        {activity.events.map((e) => (
           <div key={e.id} className="feed-item">
-            <strong>{e.title}</strong>
-            <div className="muted">{e.message}</div>
-            <div className="muted" style={{ fontSize: 12 }}>{fmtDateTime(e.created_at)}</div>
+            <div className="feed-copy">
+              <div className="feed-meta"><span className="feed-kind">{activityLabel(e)}</span><time dateTime={new Date(activityTime(e)).toISOString()}>{e.type === 'ANNOUNCEMENT_POSTED' ? 'Posted' : 'Detected'} {fmtDateTime(new Date(activityTime(e)).toISOString())}</time></div>
+              <strong>{e.title}</strong>
+              {e.message && <p className="muted">{e.message}</p>}
+              {e.type === 'ANNOUNCEMENT_POSTED' && typeof e.new_value?.html_url === 'string' && /^https:\/\//.test(e.new_value.html_url) && <a href={e.new_value.html_url} target="_blank" rel="noopener noreferrer">Open in Canvas ↗</a>}
+            </div>
+            <button type="button" className="feed-seen" aria-label={`Mark as seen: ${e.title}`} title="Mark as seen" onClick={() => void activity.markSeen(e)}>✓</button>
           </div>
         ))}
       </div>

@@ -5,6 +5,7 @@ import { useAuth } from '../hooks/AuthContext';
 import { Card, SyncHelp } from '../components/ui';
 import { fmtDateTime } from '../utils/format';
 import type { Appearance } from '../App';
+import CanvasTokenGuide from '../components/CanvasTokenGuide';
 
 interface ConnStatus {
   connected: boolean;
@@ -35,6 +36,22 @@ export default function Settings({ onNeedsSetup, appearance, onAppearanceChange,
   const [syncing, setSyncing] = useState(false);
   const [sessions, setSessions] = useState<{ id: string; created_at: string; last_active?: string; current?: boolean }[]>([]);
   const [lastSync, setLastSync] = useState<string>('—');
+  const [classes, setClasses] = useState<{ id: string; lms_course_id: string; name: string; tracked: boolean }[]>([]);
+  const [selectedClasses, setSelectedClasses] = useState<string[]>([]);
+  const [classesLoading, setClassesLoading] = useState(true);
+  const [classesMessage, setClassesMessage] = useState('');
+
+  async function loadClasses() {
+    setClassesLoading(true);
+    const { data, error } = await supabase.from('courses').select('id,lms_course_id,name,tracked').order('name');
+    if (error) setClassesMessage(`Could not load classes: ${error.message}`);
+    else {
+      const rows = (data ?? []) as { id: string; lms_course_id: string; name: string; tracked: boolean }[];
+      setClasses(rows);
+      setSelectedClasses(rows.filter((course) => course.tracked).map((course) => course.lms_course_id));
+    }
+    setClassesLoading(false);
+  }
 
   async function refresh() {
     setConnectionLoading(true);
@@ -51,6 +68,7 @@ export default function Settings({ onNeedsSetup, appearance, onAppearanceChange,
       const sess = await api.listSessions();
       setSessions(sess.sessions ?? []);
     } catch { /* Auth API may not expose list; ignore */ }
+    await loadClasses();
   }
   useEffect(() => { refresh(); }, []);
 
@@ -60,6 +78,30 @@ export default function Settings({ onNeedsSetup, appearance, onAppearanceChange,
     try { await fn(); setMsg(label + ' — done.'); await refresh(); }
     catch (e: unknown) { setMsg(`${label} failed: ${e instanceof Error ? e.message : 'error'}`); }
     finally { setBusy(false); setSyncing(false); }
+  }
+
+  async function saveClasses() {
+    setBusy(true);
+    setClassesMessage('Saving tracked classes…');
+    try {
+      await api.setTracked(selectedClasses);
+      setClasses((current) => current.map((course) => ({ ...course, tracked: selectedClasses.includes(course.lms_course_id) })));
+      setClassesMessage('Tracked classes saved. New selections will appear after the next sync.');
+    } catch (error) {
+      setClassesMessage(`Could not save classes: ${error instanceof Error ? error.message : 'Please try again.'}`);
+    } finally { setBusy(false); }
+  }
+
+  async function discoverClasses() {
+    setBusy(true);
+    setClassesMessage('Checking Canvas for classes…');
+    try {
+      await api.discoverCourses();
+      await loadClasses();
+      setClassesMessage('Class list updated. Choose which classes to track.');
+    } catch (error) {
+      setClassesMessage(`Could not check Canvas: ${error instanceof Error ? error.message : 'Please try again.'}`);
+    } finally { setBusy(false); }
   }
 
   return (
@@ -91,6 +133,13 @@ export default function Settings({ onNeedsSetup, appearance, onAppearanceChange,
           </div>
         </Card>
 
+        <Card className="settings-card settings-card-wide">
+          <details className="settings-token-details">
+            <summary>Need a new Canvas API token? View the walkthrough</summary>
+            <CanvasTokenGuide />
+          </details>
+        </Card>
+
         <Card className="settings-card">
           <div className="settings-card-head">
             <div><span className="settings-kicker">Updates</span><h2>Synchronization</h2></div>
@@ -99,10 +148,30 @@ export default function Settings({ onNeedsSetup, appearance, onAppearanceChange,
             <span>Last successful sync</span>
             <strong className="settings-main-value">{lastSync}</strong>
           </div>
-          <p className="muted">Your grades refresh automatically each day. Sync now to check for new changes.</p>
+          <p className="muted">Your saved grades appear immediately. Canvas checks for updates once when you open the site, in the background. Use Sync now whenever you want another check.</p>
           <div className="settings-actions">
             <button className="btn primary" disabled={busy} onClick={() => run(api.syncNow, 'Sync now')}>{syncing ? 'Syncing…' : 'Sync now'}</button>
             {syncing && <SyncHelp />}
+          </div>
+        </Card>
+
+        <Card className="settings-card settings-card-wide">
+          <div className="settings-card-head">
+            <div><span className="settings-kicker">Canvas</span><h2>Tracked classes</h2></div>
+            <span className="status-pill neutral">{selectedClasses.length} selected</span>
+          </div>
+          <p className="muted">Choose which Canvas classes appear on your dashboard. You can change this after sign-up without replacing your token.</p>
+          {classesLoading ? <p className="muted">Loading classes…</p> : classes.length ? <div className="settings-class-list">
+            {classes.map((course) => <label key={course.id} className="settings-checkbox">
+              <input type="checkbox" checked={selectedClasses.includes(course.lms_course_id)}
+                onChange={(event) => setSelectedClasses((current) => event.target.checked ? [...current, course.lms_course_id] : current.filter((id) => id !== course.lms_course_id))} />
+              <span><strong>{course.name}</strong></span>
+            </label>)}
+          </div> : <p className="muted">No classes found yet. Connect Canvas, then check for classes.</p>}
+          {classesMessage && <p className="muted" role="status">{classesMessage}</p>}
+          <div className="settings-actions">
+            <button type="button" className="btn primary" disabled={busy || classesLoading || !classes.length || !selectedClasses.length || classes.every((course) => course.tracked === selectedClasses.includes(course.lms_course_id))} onClick={saveClasses}>Save classes</button>
+            <button type="button" className="btn" disabled={busy || !conn?.connected} onClick={discoverClasses}>Check Canvas for classes</button>
           </div>
         </Card>
 
