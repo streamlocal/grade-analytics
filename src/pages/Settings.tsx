@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { supabase } from '../services/supabaseClient';
 import { useAuth } from '../hooks/AuthContext';
@@ -25,12 +26,14 @@ const appearances: { id: Appearance; name: string; description: string }[] = [
 const courseLevels: CourseLevel[] = ['Regular', 'Honors', 'AP', 'Free'];
 type SettingsCourse = { id: string; lms_course_id: string; name: string; tracked: boolean; level: CourseLevel };
 
-export default function Settings({ onNeedsSetup, appearance, onAppearanceChange, appearanceError }: {
+export default function Settings({ onNeedsSetup, appearance, onAppearanceChange, appearanceError, onAdminVerified }: {
   onNeedsSetup: () => void;
   appearance: Appearance;
   onAppearanceChange: (appearance: Appearance) => void;
   appearanceError: string;
+  onAdminVerified: (password: string) => void;
 }) {
+  const navigate = useNavigate();
   const { signOut, remember, setRemember } = useAuth();
   const [conn, setConn] = useState<ConnStatus | null>(null);
   const [connectionLoading, setConnectionLoading] = useState(true);
@@ -43,6 +46,63 @@ export default function Settings({ onNeedsSetup, appearance, onAppearanceChange,
   const [selectedClasses, setSelectedClasses] = useState<string[]>([]);
   const [classesLoading, setClassesLoading] = useState(true);
   const [classesMessage, setClassesMessage] = useState('');
+  const [adminPrompt, setAdminPrompt] = useState<'name' | 'enroll-password' | 'login-password' | null>(null);
+  const [adminName, setAdminName] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
+  const [adminConfirm, setAdminConfirm] = useState('');
+  const [adminMessage, setAdminMessage] = useState('');
+  const [adminBusy, setAdminBusy] = useState(false);
+  const [adminStatus, setAdminStatus] = useState<{ is_admin: boolean; can_enroll: boolean } | null>(null);
+
+  useEffect(() => {
+    let sequence = '';
+    let timer: number | undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target || target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
+      sequence = (sequence + event.key.toLowerCase()).slice(-8);
+      if (sequence.endsWith('admin121')) {
+        sequence = '';
+        window.clearTimeout(timer);
+        timer = window.setTimeout(() => { sequence = ''; }, 1000);
+        setAdminMessage('');
+        setAdminBusy(true);
+        void api.adminStatus().then((status) => {
+          setAdminStatus(status as { is_admin: boolean; can_enroll: boolean });
+          const nextStatus = status as { is_admin: boolean; can_enroll: boolean };
+          if (nextStatus.can_enroll) setAdminPrompt('name');
+          else if (nextStatus.is_admin) setAdminPrompt('login-password');
+          else setAdminMessage('Administrator access is not enabled for this account.');
+        }).catch((error) => setAdminMessage(error instanceof Error ? error.message : 'Administrator access is unavailable.')).finally(() => setAdminBusy(false));
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => { window.removeEventListener('keydown', onKeyDown); window.clearTimeout(timer); };
+  }, []);
+
+  async function submitAdminPrompt(event: React.FormEvent) {
+    event.preventDefault();
+    setAdminBusy(true); setAdminMessage('');
+    try {
+      if (adminPrompt === 'name') {
+        if (!adminName.trim()) throw new Error('Enter an administrator name.');
+        setAdminPrompt('enroll-password');
+      } else if (adminPrompt === 'enroll-password') {
+        if (adminPassword.length < 12) throw new Error('Use at least 12 characters for the administrator password.');
+        if (adminPassword !== adminConfirm) throw new Error('Passwords do not match.');
+        await api.adminEnroll(adminName.trim(), adminPassword);
+        onAdminVerified(adminPassword);
+        setAdminPrompt(null); navigate('/admin');
+      } else if (adminPrompt === 'login-password') {
+        if (!adminStatus?.is_admin) throw new Error('This account is not authorized for administrator access.');
+        const result = await api.adminVerify(adminPassword) as { verified: boolean };
+        if (!result.verified) throw new Error('Administrator password is incorrect.');
+        onAdminVerified(adminPassword);
+        setAdminPrompt(null); navigate('/admin');
+      }
+    } catch (error) { setAdminMessage(error instanceof Error ? error.message : 'Administrator setup failed.'); }
+    finally { setAdminBusy(false); }
+  }
 
   async function loadClasses() {
     setClassesLoading(true);
@@ -263,6 +323,19 @@ export default function Settings({ onNeedsSetup, appearance, onAppearanceChange,
           </div>
         </Card>
       </div>
+      {adminPrompt && <div className="auth-dialog-backdrop" role="presentation" onClick={() => { if (!adminBusy) setAdminPrompt(null); }}>
+        <div className="auth-dialog card" role="dialog" aria-modal="true" aria-labelledby="admin-prompt-title" onClick={(event) => event.stopPropagation()}>
+          <h2 id="admin-prompt-title">{adminPrompt === 'name' ? 'Administrator setup' : adminPrompt === 'enroll-password' ? 'Create administrator password' : 'Administrator sign in'}</h2>
+          <p className="muted">{adminPrompt === 'name' ? 'Choose the name shown in the administrator dashboard.' : adminPrompt === 'enroll-password' ? 'This password is encrypted with a one-way hash. It is never saved as readable text.' : 'Enter your administrator password to continue.'}</p>
+          <form onSubmit={submitAdminPrompt}>
+            {adminPrompt === 'name' && <label>Administrator name<input autoFocus value={adminName} onChange={(event) => setAdminName(event.target.value)} required /></label>}
+            {adminPrompt === 'enroll-password' && <><label>Password<input autoFocus type="password" minLength={12} value={adminPassword} onChange={(event) => setAdminPassword(event.target.value)} required /></label><label>Confirm password<input type="password" minLength={12} value={adminConfirm} onChange={(event) => setAdminConfirm(event.target.value)} required /></label></>}
+            {adminPrompt === 'login-password' && <label>Password<input autoFocus type="password" value={adminPassword} onChange={(event) => setAdminPassword(event.target.value)} required /></label>}
+            {adminMessage && <p className="error" role="alert">{adminMessage}</p>}
+            <div className="auth-dialog-actions"><button className="btn primary" disabled={adminBusy}>{adminBusy ? 'Checking…' : 'Continue'}</button><button type="button" className="btn" disabled={adminBusy} onClick={() => setAdminPrompt(null)}>Cancel</button></div>
+          </form>
+        </div>
+      </div>}
     </main>
   );
 }

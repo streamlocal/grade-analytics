@@ -28,3 +28,7 @@ verify_jwt = true
 [functions.user-sessions]
 enabled = true
 verify_jwt = true
+
+[functions.admin-dashboard]
+enabled = true
+verify_jwt = true

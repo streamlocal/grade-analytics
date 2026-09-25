@@ -30,4 +30,8 @@ export const api = {
   listSessions: () => authedInvoke('user-sessions', { action: 'list' }),
   revokeSession: (sessionId: string) => authedInvoke('user-sessions', { action: 'revoke', session_id: sessionId }),
   signOutAll: () => authedInvoke('user-sessions', { action: 'revoke-all' }),
+  adminStatus: () => authedInvoke('admin-dashboard', { action: 'status' }),
+  adminEnroll: (displayName: string, password: string) => authedInvoke('admin-dashboard', { action: 'enroll', display_name: displayName, password }),
+  adminVerify: (password: string) => authedInvoke('admin-dashboard', { action: 'verify', password }),
+  adminDashboard: (password: string) => authedInvoke('admin-dashboard', { action: 'dashboard', password }),
 };

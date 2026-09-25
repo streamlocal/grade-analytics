@@ -13,6 +13,7 @@ import History from './pages/History';
 import WhatIf from './pages/WhatIf';
 import Compare from './pages/Compare';
 import Settings from './pages/Settings';
+import AdminDashboard from './pages/AdminDashboard';
 
 export type Appearance = 'current' | 'old' | 'glass' | 'paper';
 let siteLoadSyncUser: string | null = null;
@@ -36,6 +37,7 @@ function Shell() {
   const [syncError, setSyncError] = useState('');
   const [appearance, setAppearance] = useState<Appearance>(savedAppearance);
   const [appearanceError, setAppearanceError] = useState('');
+  const [adminPassword, setAdminPassword] = useState<string | null>(null);
   const appearanceWrite = useRef<Promise<void>>(Promise.resolve());
   const appearanceVersion = useRef(0);
   const appearanceUser = useRef<string | null>(null);
@@ -99,6 +101,7 @@ function Shell() {
       setConnectionChecked(false);
       return () => { active = false; };
     }
+    setAdminPassword(null);
     setConnectionChecked(false);
     setNeedsSetup(false);
     void api.connectionStatus().then((status) => {
@@ -167,7 +170,8 @@ function Shell() {
           <Route path="/what-if" element={<WhatIf />} />
           <Route path="/compare" element={<Compare />} />
           <Route path="/settings" element={<Settings onNeedsSetup={() => setNeedsSetup(true)} appearance={appearance}
-            onAppearanceChange={changeAppearance} appearanceError={appearanceError} />} />
+            onAppearanceChange={changeAppearance} appearanceError={appearanceError} onAdminVerified={setAdminPassword} />} />
+          <Route path="/admin" element={adminPassword ? <AdminDashboard password={adminPassword} onSignOut={() => setAdminPassword(null)} /> : <Navigate to="/settings" replace />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </div>
