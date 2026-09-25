@@ -6,7 +6,7 @@ import { supabase } from '../services/supabaseClient';
 import { Card, Empty, Skeleton } from '../components/ui';
 import { HistoryChart } from '../charts/charts';
 import { fmtPct, letterFor, isSubmitted } from '../utils/format';
-import { qualityPoints, effectiveScore, roundedGpaPercent, type CourseLevel } from '../utils/gpa';
+import { qualityPoints, roundedGpaPercent, type CourseLevel } from '../utils/gpa';
 
 export default function CourseDetail() {
   const { id } = useParams();
@@ -35,7 +35,7 @@ export default function CourseDetail() {
   const scores = snaps.map((s) => s.score).filter((v): v is number => v != null);
   const hi = scores.length ? Math.max(...scores) : null;
   const lo = scores.length ? Math.min(...scores) : null;
-  const gpaPercent = roundedGpaPercent(effectiveScore(course));
+  const gpaPercent = roundedGpaPercent(course.current_score);
 
   const cats: Record<string, { total: number; n: number }> = {};
   for (const a of assignments) {
@@ -59,10 +59,10 @@ export default function CourseDetail() {
             <option value="Free">Free period (excluded)</option>
           </select>
         </label>
-        <span className="muted">Quality points{level === 'Free' ? ' (excluded)' : gpaPercent == null ? '' : ` (${gpaPercent}% used)`}: <strong>{qualityPoints(effectiveScore(course), level)?.toFixed(2) ?? '—'}</strong></span>
+        <span className="muted">Quality points{level === 'Free' ? ' (excluded)' : gpaPercent == null ? '' : ` (${gpaPercent}% used)`}: <strong>{qualityPoints(course.current_score, level)?.toFixed(2) ?? '—'}</strong></span>
       </div>
       <div className="grid stats">
-        <Card><div className="stat"><div className="l">Current</div><div className="v">{fmtPct(effectiveScore(course))} {course.score_override != null ? letterFor(effectiveScore(course)) : course.current_grade ?? letterFor(effectiveScore(course))}</div></div></Card>
+        <Card><div className="stat"><div className="l">Current Canvas grade</div><div className="v">{fmtPct(course.current_score)} {course.current_grade ?? letterFor(course.current_score)}</div></div></Card>
         <Card><div className="stat"><div className="l">Highest</div><div className="v">{fmtPct(hi)}</div></div></Card>
         <Card><div className="stat"><div className="l">Lowest</div><div className="v">{fmtPct(lo)}</div></div></Card>
         <Card><div className="stat"><div className="l">Missing</div><div className="v">{assignments.filter((a) => a.missing && !a.excused && !isSubmitted(a)).length}</div></div></Card>

@@ -62,6 +62,7 @@ export default function Compare() {
 
   if (loading) return <main><Skeleton /></main>;
   const tracked = courses.filter((c) => c.tracked);
+  const testingGrades = tracked.some((c) => c.score_override != null);
   const gpa = overallGpa(tracked.map((c) => ({ score: effectiveScore(c), level: c.level ?? 'Regular' })));
   const bar = (v: number | null, max = 100) => (
     <div style={{ background: 'var(--bg-soft)', borderRadius: 6, height: 10, minWidth: 120 }}>
@@ -73,7 +74,7 @@ export default function Compare() {
     <main>
       <h2>Comparison</h2>
       <Card>
-        <h3>Current GPA — Saint Ignatius scale</h3>
+        <h3>{testingGrades ? 'Test GPA' : 'Current Canvas GPA'} — Saint Ignatius scale</h3>
         <p style={{ fontSize: 28, fontWeight: 800 }}>{gpa == null ? '—' : gpa.toFixed(3)}</p>
         <table className="data">
           <thead><tr><th>Course</th><th>Grade %</th><th>GPA uses</th><th>Letter (display)</th><th>Level</th><th>Quality pts</th></tr></thead>
@@ -100,12 +101,12 @@ export default function Compare() {
           </tbody>
         </table>
         <p className="muted" style={{ fontSize: 12 }}>
-          Type a grade to override Canvas (blank = use Canvas). Overrides survive syncs and are marked "manual".
+          Type a test grade (blank = use Canvas). Test grades are saved to your account and affect this comparison only; Dashboard and History always show Canvas grades.
           Each course percentage rounds to the nearest whole percent (.5 up) before quality points are assigned. Ignatius scale: 100→4.3 … 65→1.0, below 65→0; Honors +0.25, AP/dual-credit/AP-prereq +0.5. Free periods excluded. The school’s calculator uses semester grades, which may differ from current Canvas grades. Letter labels are display-only; the handbook uses percentages and quality points.
         </p>
       </Card>
       <Card>
-        <h3>Current grade by course</h3>
+        <h3>{testingGrades ? 'Grades in this test' : 'Current Canvas grades'} by course</h3>
         {tracked.map((c) => {
           const s = effectiveScore(c);
           return (
@@ -124,8 +125,8 @@ export default function Compare() {
           <tbody>
             {tracked.map((c) => {
               const s = snaps[c.id] ?? [];
-              const d7 = delta(scoreAt(s, 7), effectiveScore(c));
-              const d30 = delta(scoreAt(s, 30), effectiveScore(c));
+              const d7 = delta(scoreAt(s, 7), c.current_score);
+              const d30 = delta(scoreAt(s, 30), c.current_score);
               const f = (d: number | null) => d == null ? '—' : `${d > 0 ? '+' : ''}${d.toFixed(1)}`;
               return <tr key={c.id}><td>{c.name}</td><td>{f(d7)}</td><td>{f(d30)}</td></tr>;
             })}

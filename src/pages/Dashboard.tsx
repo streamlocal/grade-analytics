@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { Card, Empty, Skeleton } from '../components/ui';
 import { Sparkline } from '../charts/charts';
 import { delta, deltaClass, fmtDateTime, fmtPct, letterFor, scoreAt, isSubmitted } from '../utils/format';
-import { overallGpa, qualityPoints, effectiveScore, roundedGpaPercent } from '../utils/gpa';
+import { overallGpa, qualityPoints, roundedGpaPercent } from '../utils/gpa';
 import type { CourseSnapshot } from '../models/types';
 import { activityLabel, activityTime } from '../utils/activity';
 
@@ -68,9 +68,9 @@ export default function Dashboard() {
   const needsAttention = assignments.filter((a) => !a.excused && !isSubmitted(a) &&
     (a.missing || (a.score == null && a.due_at != null && new Date(a.due_at).getTime() < now)));
   const graded = assignments.filter((a) => a.score != null);
-  const scored = tracked.map((c) => effectiveScore(c)).filter((v): v is number => v != null);
+  const scored = tracked.map((c) => c.current_score).filter((v): v is number => v != null);
   const avg = scored.length ? scored.reduce((a, b) => a + b, 0) / scored.length : null;
-  const gpa = overallGpa(tracked.map((c) => ({ score: effectiveScore(c), level: c.level ?? 'Regular' })));
+  const gpa = overallGpa(tracked.map((c) => ({ score: c.current_score, level: c.level ?? 'Regular' })));
   // Put the most actionable card in the left-hand, first-read position.
   const priorityOrder = needsAttention.length ? ['attention', 'upcoming'] as const : ['upcoming', 'attention'] as const;
 
@@ -127,7 +127,7 @@ export default function Dashboard() {
       <div className="grid cards">
         {tracked.map((c) => {
           const s = snaps[c.id] ?? [];
-          const cur = effectiveScore(c);
+          const cur = c.current_score;
           const selectedDays = courseTrendDays[c.id] ?? allTrendDays;
           const cutoff = now - selectedDays * 86400_000;
           const older = s.filter((point) => new Date(point.created_at).getTime() < cutoff);
@@ -137,7 +137,7 @@ export default function Dashboard() {
             <Card key={c.id} className="course-card">
               <div className="row course-card-top" style={{ justifyContent: 'space-between' }}>
                 <Link to={`/course/${c.id}`}><strong>{c.name}</strong></Link>
-                <span title={c.level === 'Free' ? 'Excluded from GPA' : cur == null ? undefined : `Quality points use ${roundedGpaPercent(cur)}% after rounding`}>{fmtPct(cur)} · {c.score_override != null ? letterFor(cur) : c.current_grade ?? letterFor(cur)} · QP {qualityPoints(cur, c.level ?? 'Regular')?.toFixed(2) ?? '—'}</span>
+                <span title={c.level === 'Free' ? 'Excluded from GPA' : cur == null ? undefined : `Quality points use ${roundedGpaPercent(cur)}% after rounding`}>{fmtPct(cur)} · {c.current_grade ?? letterFor(cur)} · QP {qualityPoints(cur, c.level ?? 'Regular')?.toFixed(2) ?? '—'}</span>
               </div>
               <Sparkline points={chartSnaps.map((x) => x.score)} />
               <div className="course-trend-controls" role="group" aria-label={`${c.name} time range`}>

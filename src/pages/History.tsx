@@ -4,7 +4,7 @@ import { supabase } from '../services/supabaseClient';
 import { fetchSnapshotsForCourses, useCourses } from '../hooks/useData';
 import { Card, Empty, Skeleton } from '../components/ui';
 import { MultiLineChart, SERIES_COLORS, type Series } from '../charts/charts';
-import { effectiveScore, overallGpa } from '../utils/gpa';
+import { overallGpa } from '../utils/gpa';
 import { buildGpaTimeline, collapseUnchangedSnapshots } from '../utils/history';
 import type { CourseSnapshot, SyncRun } from '../models/types';
 
@@ -70,7 +70,7 @@ export default function History() {
   const rangeGpa = beforeRangeGpa && inRangeGpa.length && range !== 'ALL'
     ? [{ t: new Date(cutoff).toISOString(), score: beforeRangeGpa.score }, ...inRangeGpa]
     : inRangeGpa;
-  const currentGpa = overallGpa(tracked.map((c) => ({ score: effectiveScore(c), level: c.level ?? 'Regular' })));
+  const currentGpa = overallGpa(tracked.map((c) => ({ score: c.current_score, level: c.level ?? 'Regular' })));
 
   if (loading) return <main><Skeleton lines={6} /></main>;
   if (!tracked.length) return <main><Empty title="No tracked courses yet" hint="Connect Canvas in Settings and run a sync." /></main>;
