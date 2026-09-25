@@ -32,13 +32,21 @@ Deno.serve(async (req) => {
     const action = String(body.action ?? '');
     const course = identifier(body.course_id);
     if (!course) return json({ error: 'A valid course is required.' }, 400);
+    const assignment = identifier(body.assignment_id);
+    if (action === 'resolve' && !assignment) return json({ error: 'A valid assignment is required.' }, 400);
     const quiz = identifier(body.quiz_id);
-    if (action !== 'list' && !quiz) return json({ error: 'A valid quiz is required.' }, 400);
+    if (!['list', 'resolve'].includes(action) && !quiz) return json({ error: 'A valid quiz is required.' }, 400);
     const submission = identifier(body.submission_id);
     if (['questions', 'answer', 'flag', 'submit', 'time'].includes(action) && !submission) return json({ error: 'A valid quiz attempt is required.' }, 400);
     const { cred, token } = await decryptCredential(admin, user.id);
     if (cred.provider !== 'canvas') return json({ error: 'This quiz interface requires Canvas.' }, 400);
     const root = `/api/v1/courses/${course}/quizzes`;
+    if (action === 'resolve') {
+      const result = await canvas(cred.base_url, token, `/api/v1/courses/${course}/assignments/${assignment}`);
+      if (!result.ok) return result;
+      const details = await result.json() as { quiz_id?: number | null; is_quiz_assignment?: boolean; html_url?: string; name?: string };
+      return json({ quiz_id: details.quiz_id ?? null, is_quiz_assignment: Boolean(details.is_quiz_assignment), html_url: details.html_url ?? null, name: details.name ?? 'Assignment' });
+    }
     if (action === 'list') return await canvas(cred.base_url, token, `${root}?per_page=100`);
     if (action === 'details') return await canvas(cred.base_url, token, `${root}/${quiz}`);
     if (action === 'start') return await canvas(cred.base_url, token, `${root}/${quiz}/submissions`, 'POST', body.access_code ? { access_code: String(body.access_code) } : {});

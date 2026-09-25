@@ -80,6 +80,12 @@ function scoreLabel(a: Assignment): string {
   return `${a.score} / ${a.points_possible ?? '—'} pts`;
 }
 
+function looksLikeQuiz(a: Assignment): boolean {
+  return /\/quizzes\/\d+(?:[/?#]|$)/.test(a.html_url ?? '')
+    || /\b(quiz|test|exam)\b/i.test(a.name)
+    || /^(test|quiz|exam)$/i.test(a.category ?? '');
+}
+
 export default function Assignments() {
   const { courses } = useCourses();
   const { assignments, loading, error, reload } = useAssignments();
@@ -295,11 +301,13 @@ export default function Assignments() {
           <div className="assignment-list">{group.items.map((a) => {
             const status = statusOf(a, now);
             const submitted = isSubmitted(a);
+            const canvasCourseId = courses.find((course) => course.id === a.course_id)?.lms_course_id;
+            const quizPath = canvasCourseId && looksLikeQuiz(a) ? `/quiz-assignment/${canvasCourseId}/${a.lms_assignment_id}` : null;
             return (
               <article key={a.id} className="assignment-item">
                 <div className="assignment-main">
                   <div className="assignment-title-row">
-                    <h3>{a.html_url ? <a href={a.html_url} target="_blank" rel="noreferrer">{a.name}</a> : a.name}</h3>
+                    <h3>{quizPath ? <Link to={quizPath} state={{ canvasUrl: a.html_url ?? undefined }}>{a.name}</Link> : a.html_url ? <a href={a.html_url} target="_blank" rel="noreferrer">{a.name}</a> : a.name}</h3>
                     <span className={`status-pill ${status.tone}`}>{status.label}</span>
                   </div>
                   <p className="assignment-course">{courseNames.get(a.course_id) ?? 'Unknown course'}{a.category ? ` · ${a.category}` : ''}</p>
@@ -309,7 +317,7 @@ export default function Assignments() {
                   </div>
                 </div>
                 <div className="assignment-actions">
-                  {a.html_url && /\/quizzes\/\d+(?:[/?#]|$)/.test(a.html_url) && <Link className="btn primary" to={`/quiz/${courses.find(c => c.id === a.course_id)?.lms_course_id ?? ''}/${a.html_url.match(/\/quizzes\/(\d+)/)?.[1] ?? ''}`}>Take in site</Link>}
+                  {quizPath && <Link className="btn primary" to={quizPath} state={{ canvasUrl: a.html_url ?? undefined }}>Open quiz</Link>}
                   {(a.score == null || a.missing) && !a.excused && (
                     <button type="button" className={`btn ${submitted ? '' : 'primary'}`} disabled={busyId === a.id}
                       onClick={() => setSubmission(a, !submitted)}>

@@ -16,6 +16,7 @@ import Settings from './pages/Settings';
 import AdminDashboard from './pages/AdminDashboard';
 import QuizTake from './pages/QuizTake';
 import Quizzes from './pages/Quizzes';
+import QuizAssignment from './pages/QuizAssignment';
 
 export type Appearance = 'current' | 'old' | 'glass' | 'paper';
 let siteLoadSyncUser: string | null = null;
@@ -171,6 +172,7 @@ function Shell() {
           <Route path="/assignments" element={<Assignments />} />
           <Route path="/quiz/:courseId/:quizId" element={<QuizTake />} />
           <Route path="/quizzes" element={<Quizzes />} />
+          <Route path="/quiz-assignment/:courseId/:assignmentId" element={<QuizAssignment />} />
           <Route path="/what-if" element={<WhatIf />} />
           <Route path="/compare" element={<Compare />} />
           <Route path="/settings" element={<Settings onNeedsSetup={() => setNeedsSetup(true)} appearance={appearance}
