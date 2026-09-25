@@ -343,6 +343,14 @@ table.data tbody tr:hover { background: color-mix(in srgb,var(--accent) 4%,var(-
 .session-list { border-top: 1px solid var(--border); margin-bottom: 17px; }
 .session-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); font-size: .86rem; font-weight: 600; }
 .settings-small { font-size: .82rem; }
+.settings-tracked-details summary { display: flex; align-items: center; justify-content: space-between; gap: 14px; cursor: pointer; list-style: none; }
+.settings-tracked-details summary::-webkit-details-marker { display: none; }
+.settings-tracked-details summary > span:first-child { display: grid; gap: 3px; }
+.settings-tracked-details summary strong { font-size: 1.1rem; }
+.settings-tracked-details summary::after { content: '⌄'; font-size: 1.3rem; line-height: 1; color: var(--muted); transition: transform .15s ease; }
+.settings-tracked-details[open] summary::after { transform: rotate(180deg); }
+.settings-tracked-details summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; border-radius: 4px; }
+.settings-tracked-content { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--border); }
 .beta-settings-list, .beta-notification-list { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 0 24px; }
 .beta-setting { padding: 12px 0; border-top: 1px solid var(--border); }
 .beta-card { margin: 22px 0; }

@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase, getRememberPreference, refreshAuthClient, onClientChange } from '../services/supabaseClient';
+import { clearOffline } from '../utils/offline';
 
 interface AuthCtx {
   session: Session | null;
@@ -59,6 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Supabase defaults to a global sign-out. The ordinary button must only
     // end this browser's session; Settings has a separate all-devices action.
     await supabase.auth.signOut({ scope: 'local' });
+    clearOffline(session?.user.id);
     setSession(null);
   };
 

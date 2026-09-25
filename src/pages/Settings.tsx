@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { supabase } from '../services/supabaseClient';
@@ -11,6 +11,7 @@ import type { CourseLevel } from '../utils/gpa';
 import { betaFeatures, parseBetaFlags, type BetaFlags } from '../beta';
 import { useBeta } from '../beta';
 import { useBetaStore } from '../hooks/useBetaStore';
+import { clearOffline } from '../utils/offline';
 
 interface ConnStatus {
   connected: boolean;
@@ -41,24 +42,44 @@ export default function Settings({ onNeedsSetup, appearance, onAppearanceChange,
   const betaStore = useBetaStore(activeBeta.notifications);
   const { signOut, remember, setRemember, session } = useAuth();
   const [betaDraft, setBetaDraft] = useState<BetaFlags>(() => parseBetaFlags(session?.user.user_metadata?.beta_features));
+  const betaDraftRef = useRef(betaDraft);
+  const betaTouched = useRef(false);
+  const betaWrite = useRef<Promise<void>>(Promise.resolve());
+  const betaVersion = useRef(0);
   const [betaMessage, setBetaMessage] = useState('');
   const [betaSaving, setBetaSaving] = useState(false);
 
   useEffect(() => {
     let active = true;
     void supabase.auth.getUser().then(({ data }) => {
-      if (active && data.user && data.user.id === session?.user.id) setBetaDraft(parseBetaFlags(data.user.user_metadata?.beta_features));
+      if (active && !betaTouched.current && data.user && data.user.id === session?.user.id) {
+        const flags = parseBetaFlags(data.user.user_metadata?.beta_features);
+        betaDraftRef.current = flags;
+        setBetaDraft(flags);
+      }
     });
     return () => { active = false; };
   }, [session?.user.id]);
 
-  async function saveBeta() {
+  function changeBeta(id: keyof BetaFlags, enabled: boolean) {
+    const next = { ...betaDraftRef.current, [id]: enabled };
+    betaDraftRef.current = next;
+    betaTouched.current = true;
+    setBetaDraft(next);
+    window.dispatchEvent(new Event('ga-beta-preferences-saved'));
     setBetaSaving(true);
-    setBetaMessage('');
-    const { error } = await supabase.auth.updateUser({ data: { beta_features: betaDraft } });
-    if (!error) window.dispatchEvent(new Event('ga-beta-preferences-saved'));
-    setBetaMessage(error ? `Could not save beta preferences: ${error.message}` : 'Saved to your account. Reload this page to apply these choices.');
-    setBetaSaving(false);
+    setBetaMessage('Saving…');
+    const version = ++betaVersion.current;
+    betaWrite.current = betaWrite.current.catch(() => {}).then(async () => {
+      const { error } = await supabase.auth.updateUser({ data: { beta_features: next } });
+      if (version !== betaVersion.current) return;
+      if (!error) {
+        if (!next.offline) clearOffline(session?.user.id);
+        window.dispatchEvent(new Event('ga-beta-preferences-saved'));
+      }
+      setBetaMessage(error ? `Could not save beta preferences: ${error.message}` : 'Saved to your account. Reload this page to apply these choices.');
+      setBetaSaving(false);
+    });
   }
   const [conn, setConn] = useState<ConnStatus | null>(null);
   const [connectionLoading, setConnectionLoading] = useState(true);
@@ -264,33 +285,6 @@ export default function Settings({ onNeedsSetup, appearance, onAppearanceChange,
           </div>
         </Card>
 
-        <Card className="settings-card settings-card-wide">
-          <div className="settings-card-head">
-            <div><span className="settings-kicker">Canvas</span><h2>Tracked classes</h2></div>
-            <span className="status-pill neutral">{selectedClasses.length} selected</span>
-          </div>
-          <p className="muted">Choose which Canvas classes appear on your dashboard and set their actual GPA course types. Changes to these types affect GPA; test changes in Compare do not.</p>
-          {classesLoading ? <p className="muted">Loading classes…</p> : classes.length ? <div className="settings-class-list">
-            {classes.map((course) => <div key={course.id} className="settings-class-row">
-              <label className="settings-checkbox">
-                <input type="checkbox" checked={selectedClasses.includes(course.lms_course_id)}
-                  onChange={(event) => setSelectedClasses((current) => event.target.checked ? [...current, course.lms_course_id] : current.filter((id) => id !== course.lms_course_id))} />
-                <span><strong>{course.name}</strong></span>
-              </label>
-              <label className="settings-course-type">GPA course type
-                <select value={course.level ?? 'Regular'} disabled={busy} onChange={(event) => void setCourseLevel(course, event.target.value as CourseLevel)}>
-                  {courseLevels.map((level) => <option key={level} value={level}>{level}</option>)}
-                </select>
-              </label>
-            </div>)}
-          </div> : <p className="muted">No classes found yet. Connect Canvas, then check for classes.</p>}
-          {classesMessage && <p className="muted" role="status">{classesMessage}</p>}
-          <div className="settings-actions">
-            <button type="button" className="btn primary" disabled={busy || classesLoading || !classes.length || !selectedClasses.length || classes.every((course) => course.tracked === selectedClasses.includes(course.lms_course_id))} onClick={saveClasses}>Save classes</button>
-            <button type="button" className="btn" disabled={busy || !conn?.connected} onClick={discoverClasses}>Check Canvas for classes</button>
-          </div>
-        </Card>
-
         <Card className="settings-card settings-card-wide appearance-card">
           <div className="settings-card-head">
             <div><span className="settings-kicker">Display</span><h2>Appearance</h2></div>
@@ -310,13 +304,12 @@ export default function Settings({ onNeedsSetup, appearance, onAppearanceChange,
 
         <Card className="settings-card settings-card-wide" id="beta-features">
           <div className="settings-card-head"><div><span className="settings-kicker">Optional</span><h2>Beta features</h2></div><span className="status-pill neutral">Off by default</span></div>
-          <p className="muted">Enable only the features you want. Each switch is saved to your account across both sites and takes effect on your next reload.</p>
+          <p className="muted">Enable only the features you want. Each switch saves to your account across both sites and takes effect on your next reload.</p>
           <div className="beta-settings-list">{betaFeatures.map((feature) => <label key={feature.id} className="settings-checkbox beta-setting">
-            <input type="checkbox" checked={betaDraft[feature.id]} onChange={(event) => setBetaDraft((current) => ({ ...current, [feature.id]: event.target.checked }))} />
+            <input type="checkbox" checked={betaDraft[feature.id]} onChange={(event) => changeBeta(feature.id, event.target.checked)} />
             <span><strong>{feature.name}</strong><small>{feature.description}</small></span>
           </label>)}</div>
-          {betaMessage && <p className={betaMessage.startsWith('Could not') ? 'error' : 'muted'} role="status">{betaMessage}</p>}
-          <div className="settings-actions"><button type="button" className="btn primary" disabled={betaSaving} onClick={saveBeta}>{betaSaving ? 'Saving…' : 'Save beta features'}</button></div>
+          {betaMessage && <p className={betaMessage.startsWith('Could not') ? 'error' : 'muted'} role="status">{betaSaving ? 'Saving…' : betaMessage}</p>}
         </Card>
         {activeBeta.notifications && <Card className="settings-card settings-card-wide"><div className="settings-card-head"><div><span className="settings-kicker">Beta</span><h2>Notification choices</h2></div></div><p className="muted">Browser permission is requested from the dashboard only if you choose to allow alerts. Updates are bundled into one digest and shown only while this tab is in the background.</p><div className="beta-notification-list">{([
           ['grades', 'New grades'], ['dueDates', 'Moved due dates'], ['dueSoon', 'Assignments due within 24 hours'], ['goalRisk', 'Goals near or below target'],
@@ -338,7 +331,7 @@ export default function Settings({ onNeedsSetup, appearance, onAppearanceChange,
           <div className="settings-danger">
             <strong>Delete grade data</strong>
             <p>This removes your saved grades and Canvas connection.</p>
-            <button className="btn danger" disabled={busy} onClick={() => { if (confirm('Delete ALL grade data and credential?')) run(api.deleteAllData, 'Delete all data'); }}>Delete all grade data</button>
+            <button className="btn danger" disabled={busy} onClick={() => { if (confirm('Delete ALL grade data and credential?')) run(async () => { await api.deleteAllData(); clearOffline(session?.user.id); }, 'Delete all data'); }}>Delete all grade data</button>
           </div>
         </Card>
 
@@ -358,8 +351,36 @@ export default function Settings({ onNeedsSetup, appearance, onAppearanceChange,
           ))}</div> : <p className="muted settings-small">Other device sessions aren't available right now.</p>}
           <div className="settings-actions">
             <button className="btn" disabled={busy} onClick={() => run(signOut, 'Sign out on this device')}>Sign out on this device</button>
-            <button className="btn danger" disabled={busy} onClick={() => run(() => supabase.auth.signOut({ scope: 'global' }), 'Sign out of all devices')}>Sign out of all devices</button>
+            <button className="btn danger" disabled={busy} onClick={() => run(async () => { await supabase.auth.signOut({ scope: 'global' }); clearOffline(session?.user.id); }, 'Sign out of all devices')}>Sign out of all devices</button>
           </div>
+        </Card>
+
+        <Card className="settings-card settings-card-wide tracked-classes-card">
+          <details className="settings-tracked-details">
+            <summary><span><span className="settings-kicker">Canvas</span><strong>Tracked classes</strong></span><span className="status-pill neutral">{selectedClasses.length} selected</span></summary>
+            <div className="settings-tracked-content">
+              <p className="muted">Choose which Canvas classes appear on your dashboard and set their actual GPA course types. Changes to these types affect GPA; test changes in Compare do not.</p>
+              {classesLoading ? <p className="muted">Loading classes…</p> : classes.length ? <div className="settings-class-list">
+                {classes.map((course) => <div key={course.id} className="settings-class-row">
+                  <label className="settings-checkbox">
+                    <input type="checkbox" checked={selectedClasses.includes(course.lms_course_id)}
+                      onChange={(event) => setSelectedClasses((current) => event.target.checked ? [...current, course.lms_course_id] : current.filter((id) => id !== course.lms_course_id))} />
+                    <span><strong>{course.name}</strong></span>
+                  </label>
+                  <label className="settings-course-type">GPA course type
+                    <select value={course.level ?? 'Regular'} disabled={busy} onChange={(event) => void setCourseLevel(course, event.target.value as CourseLevel)}>
+                      {courseLevels.map((level) => <option key={level} value={level}>{level}</option>)}
+                    </select>
+                  </label>
+                </div>)}
+              </div> : <p className="muted">No classes found yet. Connect Canvas, then check for classes.</p>}
+              {classesMessage && <p className="muted" role="status">{classesMessage}</p>}
+              <div className="settings-actions">
+                <button type="button" className="btn primary" disabled={busy || classesLoading || !classes.length || !selectedClasses.length || classes.every((course) => course.tracked === selectedClasses.includes(course.lms_course_id))} onClick={saveClasses}>Save classes</button>
+                <button type="button" className="btn" disabled={busy || !conn?.connected} onClick={discoverClasses}>Check Canvas for classes</button>
+              </div>
+            </div>
+          </details>
         </Card>
       </div>
       {adminPrompt && <div className="auth-dialog-backdrop" role="presentation" onClick={() => { if (!adminBusy) setAdminPrompt(null); }}>

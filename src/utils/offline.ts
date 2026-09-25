@@ -13,3 +13,9 @@ export function writeOffline<T>(userId: string | undefined, kind: string, rows: 
   try { localStorage.setItem(`ga-offline:${userId}:${kind}`, JSON.stringify({ savedAt: new Date().toISOString(), rows })); }
   catch { /* Private mode and full storage should not break the live app. */ }
 }
+
+export function clearOffline(userId: string | undefined) {
+  if (!userId) return;
+  localStorage.removeItem(`ga-offline:${userId}:courses`);
+  localStorage.removeItem(`ga-offline:${userId}:assignments`);
+}
