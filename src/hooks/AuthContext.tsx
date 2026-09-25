@@ -56,7 +56,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut(); // current device only
+    // Supabase defaults to a global sign-out. The ordinary button must only
+    // end this browser's session; Settings has a separate all-devices action.
+    await supabase.auth.signOut({ scope: 'local' });
     setSession(null);
   };
 

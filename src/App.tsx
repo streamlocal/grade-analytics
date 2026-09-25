@@ -100,12 +100,16 @@ function Shell() {
       return () => { active = false; };
     }
     setConnectionChecked(false);
+    setNeedsSetup(false);
     void api.connectionStatus().then((status) => {
-      if (active) setNeedsSetup(!status.connected);
+      if (active) {
+        setNeedsSetup(!status.connected);
+        setConnectionChecked(true);
+      }
     }).catch(() => {
-      if (active) setNeedsSetup(true);
-    }).finally(() => {
-      if (active) setConnectionChecked(true);
+      // A temporary network/auth error is not evidence that the saved Canvas
+      // token is gone. Keep showing saved data instead of demanding a new key.
+      if (active) setSyncError('Could not verify the Canvas connection right now. Showing your saved data; reload to retry.');
     });
     return () => { active = false; };
   }, [session?.user.id]);
