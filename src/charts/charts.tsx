@@ -92,6 +92,67 @@ export interface Series {
   points: { t: string; score: number | null }[];
 }
 
+export function GpaTrendChart({ points }: { points: { t: string; score: number }[] }) {
+  const [hover, setHover] = useState<number | null>(null);
+  if (points.length < 2) return <div className="empty">Not enough GPA history yet — sync again after grades change.</div>;
+
+  const width = 820, height = 286;
+  const pad = { l: 58, r: 26, t: 37, b: 34 };
+  const values = points.map((point) => point.score);
+  const rawMin = Math.min(...values), rawMax = Math.max(...values);
+  // A minimum span prevents one tiny quality-point step from looking like a
+  // giant swing, while retaining enough detail to see actual movement.
+  const span = Math.max(rawMax - rawMin + 0.08, 0.18);
+  const mid = (rawMin + rawMax) / 2;
+  const min = mid - span / 2, max = mid + span / 2;
+  const tMin = Date.parse(points[0].t), tMax = Date.parse(points[points.length - 1].t);
+  const x = (point: { t: string }) => pad.l + ((Date.parse(point.t) - tMin) / Math.max(tMax - tMin, 1)) * (width - pad.l - pad.r);
+  const y = (score: number) => pad.t + (max - score) / span * (height - pad.t - pad.b);
+  // GPA changes only at saved syncs; a step chart shows that more honestly
+  // than a diagonal line implying a gradual change between checks.
+  const path = points.slice(1).reduce((d, point, index) => `${d} H${x(point).toFixed(1)} V${y(point.score).toFixed(1)}`,
+    `M${x(points[0]).toFixed(1)} ${y(points[0].score).toFixed(1)}`);
+  const area = `${path} L${x(points[points.length - 1]).toFixed(1)} ${height - pad.b} L${x(points[0]).toFixed(1)} ${height - pad.b} Z`;
+  const date = (value: string) => new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const hovered = hover == null ? null : points[hover];
+
+  return <svg viewBox={`0 0 ${width} ${height}`} className="history-chart gpa-trend-chart" role="img"
+    aria-label={`GPA from ${values[0].toFixed(3)} to ${values[values.length - 1].toFixed(3)}, ${date(points[0].t)} to ${date(points[points.length - 1].t)}`}>
+    <defs><linearGradient id="gpa-history-fill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.17" />
+      <stop offset="100%" stopColor="var(--accent)" stopOpacity="0.01" />
+    </linearGradient></defs>
+    {[0, 1 / 3, 2 / 3, 1].map((fraction) => {
+      const value = max - span * fraction;
+      return <g key={fraction}>
+        <line x1={pad.l} x2={width - pad.r} y1={y(value)} y2={y(value)} stroke="currentColor" strokeOpacity="0.11" />
+        <text x={4} y={y(value) + 4} fontSize="12" fill="currentColor" opacity="0.72">{value.toFixed(3)}</text>
+      </g>;
+    })}
+    <line x1={pad.l} x2={width - pad.r} y1={y(points[0].score)} y2={y(points[0].score)}
+      stroke="var(--muted)" strokeWidth="1" strokeDasharray="4 5" opacity="0.55" />
+    <path d={area} fill="url(#gpa-history-fill)" />
+    <path d={path} fill="none" stroke="var(--accent)" strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
+    {points.map((point, index) => <circle key={`${point.t}-${index}`} cx={x(point)} cy={y(point.score)}
+      r={index === points.length - 1 ? 5.5 : 4} fill="var(--accent)" stroke="var(--card)" strokeWidth="2"
+      onPointerEnter={() => setHover(index)} onPointerLeave={() => setHover(null)}>
+      <title>{`${new Date(point.t).toLocaleString()} · GPA ${point.score.toFixed(3)}`}</title>
+    </circle>)}
+    <text x={pad.l} y={height - 10} fontSize="12" fill="currentColor" opacity="0.72">{date(points[0].t)}</text>
+    <text x={width - pad.r} y={height - 10} fontSize="12" fill="currentColor" opacity="0.72" textAnchor="end">{date(points[points.length - 1].t)}</text>
+    {hovered && (() => {
+      const tooltipWidth = 232;
+      const tooltipX = Math.max(pad.l, Math.min(x(hovered) - tooltipWidth / 2, width - pad.r - tooltipWidth));
+      const tooltipY = y(hovered.score) < 82 ? y(hovered.score) + 13 : y(hovered.score) - 53;
+      return <g pointerEvents="none">
+        <rect x={tooltipX} y={tooltipY} width={tooltipWidth} height="42" rx="6" fill="var(--text)" opacity="0.95" />
+        <text x={tooltipX + 10} y={tooltipY + 17} fontSize="12" fontWeight="700" fill="var(--card)">GPA {hovered.score.toFixed(3)}</text>
+        <text x={tooltipX + 10} y={tooltipY + 33} fontSize="11" fill="var(--card)">{new Date(hovered.t).toLocaleString()}</text>
+      </g>;
+    })()}
+  </svg>;
+}
+
 // Daily lines stay useful over a semester, but a marker for every unchanged
 // day turns a calm grade history into visual noise. Keep every point in the
 // line; on long ranges only mark the endpoints, changes, and weekly waypoints.

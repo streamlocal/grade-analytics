@@ -177,6 +177,29 @@ table.data tbody tr:hover { background: color-mix(in srgb,var(--accent) 4%,var(-
 .history-chart { width: 100%; height: auto; max-height: 380px; }
 .toolbar { display: flex; gap: 9px; flex-wrap: wrap; align-items: center; margin: 17px 0; }
 .toolbar label { margin: 0; }
+.history-view-switch { display: inline-flex; gap: 2px; margin-left: auto; padding: 3px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-soft); }
+.history-view-switch button { min-height: 32px; padding: 5px 12px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); font-size: .85rem; font-weight: 600; }
+.history-view-switch button[aria-pressed="true"] { background: var(--card); color: var(--accent); box-shadow: 0 1px 4px rgba(25,41,57,.12); }
+.gpa-history-summary { display: flex; gap: clamp(20px,5vw,60px); flex-wrap: wrap; align-items: baseline; margin: 18px 0 8px; }
+.gpa-history-summary > div { display: flex; align-items: baseline; gap: 10px; }
+.gpa-history-summary strong { font-size: 1.5rem; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+.gpa-history-summary .muted { font-size: .86rem; }
+.gpa-history-summary .up, .gpa-impact-row .up { color: var(--up); }
+.gpa-history-summary .down, .gpa-impact-row .down { color: var(--down); }
+.gpa-trend-chart { max-height: 330px; }
+.gpa-history-note { margin: 13px 0 0; font-size: .82rem; line-height: 1.55; }
+.gpa-impact-view { margin-top: 12px; padding: 18px 20px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-soft); }
+.gpa-impact-view h3 { margin-bottom: 3px; }
+.gpa-impact-view > p { margin-bottom: 19px; font-size: .86rem; }
+.gpa-impact-row { display: grid; grid-template-columns: minmax(145px,1.5fr) minmax(110px,2fr) 72px; align-items: center; gap: 16px; min-height: 46px; border-top: 1px solid var(--border); }
+.gpa-impact-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .88rem; }
+.gpa-impact-track { position: relative; height: 16px; }
+.gpa-impact-midline { position: absolute; left: 50%; top: 0; height: 100%; border-left: 1px solid var(--muted); opacity: .65; }
+.gpa-impact-bar { position: absolute; top: 3px; height: 10px; border-radius: 3px; }
+.gpa-impact-row strong { text-align: right; font-size: .86rem; font-variant-numeric: tabular-nums; }
+.gpa-impact-axis { display: grid; grid-template-columns: minmax(145px,1.5fr) minmax(110px,2fr) 72px; gap: 16px; margin-top: 3px; color: var(--muted); font-size: .77rem; }
+.gpa-impact-axis span:first-child { grid-column: 2; grid-row: 1; justify-self: start; }
+.gpa-impact-axis span:last-child { grid-column: 2; grid-row: 1; justify-self: end; }
 .theme-toggle { display: block; margin: 8px clamp(20px,3vw,48px) 0 auto; }
 .auth-page { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 32px 16px; background: radial-gradient(circle at 15% 12%,var(--accent-soft),transparent 32%),var(--bg); }
 .auth-intro { display: flex; align-items: center; gap: 10px; margin-bottom: 24px; color: var(--accent); font-size: .76rem; font-weight: 700; letter-spacing: .13em; }
@@ -442,6 +465,14 @@ table.data tbody tr:hover { background: color-mix(in srgb,var(--accent) 4%,var(-
   [data-appearance="old"] .topbar-right .user { display: none; }
 }
 @media (max-width: 520px) {
+  .history-view-switch { margin-left: 0; width: 100%; }
+  .history-view-switch button { flex: 1; }
+  .gpa-history-summary { gap: 8px 22px; }
+  .gpa-history-summary > div { flex-direction: column; gap: 0; }
+  .gpa-impact-view { padding: 15px 12px 10px; }
+  .gpa-impact-row { grid-template-columns: minmax(0,1fr) 66px; gap: 2px 8px; padding: 9px 0; }
+  .gpa-impact-name { grid-column: 1 / -1; }
+  .gpa-impact-axis { display: flex; justify-content: space-between; margin: 3px 66px 0 0; }
   .settings-class-list { grid-template-columns: 1fr; }
   .admin-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .admin-grid { grid-template-columns: 1fr; }

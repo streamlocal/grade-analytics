@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildGpaTimeline, collapseUnchangedSnapshots } from './history';
+import { buildGpaHistory, buildGpaTimeline, collapseUnchangedSnapshots } from './history';
 import type { Course, CourseSnapshot, SyncRun } from '../models/types';
 
 const base = '2026-09-22T12:00:00Z';
@@ -25,6 +25,18 @@ describe('GPA history', () => {
     const first = snap('a', 1, 95);
     first.created_at = first.created_at.replace('Z', '+00:00');
     expect(buildGpaTimeline([course('a')], [first], [run(2)])).toHaveLength(1);
+  });
+  it('shows how a class percentage can change without changing its GPA share', () => {
+    const history = buildGpaHistory([course('a'), course('b')], [
+      snap('a', 1, 98.1), snap('b', 2, 90),
+      snap('a', 11, 98.4), snap('b', 12, 90),
+      snap('a', 21, 97.4), snap('b', 22, 91),
+    ], [run(3), run(13), run(23)]);
+    expect(history[1].score).toBe(history[0].score);
+    expect(history[1].shares.a).toBe(history[0].shares.a);
+    const contribution = Object.keys(history[2].shares).reduce((sum, id) =>
+      sum + history[2].shares[id] - history[1].shares[id], 0);
+    expect(contribution).toBeCloseTo(history[2].score - history[1].score, 3);
   });
   it('merges unchanged snapshots while keeping every grade change', () => {
     const snapshots = [snap('a', 1, 95), snap('a', 10, 95), snap('a', 15, 96), snap('a', 60, 96)];

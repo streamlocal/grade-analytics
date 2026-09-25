@@ -3,9 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../services/supabaseClient';
 import { fetchSnapshotsForCourses, useCourses } from '../hooks/useData';
 import { Card, Empty, Skeleton } from '../components/ui';
-import { MultiLineChart, SERIES_COLORS, type Series } from '../charts/charts';
+import { GpaTrendChart, MultiLineChart, SERIES_COLORS, type Series } from '../charts/charts';
 import { overallGpa } from '../utils/gpa';
-import { buildGpaTimeline, collapseUnchangedSnapshots } from '../utils/history';
+import { buildGpaHistory, collapseUnchangedPoints, collapseUnchangedSnapshots } from '../utils/history';
 import type { CourseSnapshot, SyncRun } from '../models/types';
 
 type Range = '7D' | '30D' | 'Q' | 'S' | 'ALL';
@@ -19,6 +19,7 @@ export default function History() {
   const [range, setRange] = useState<Range>('30D');
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [mode, setMode] = useState<'classes' | 'gpa'>('classes');
+  const [gpaView, setGpaView] = useState<'trend' | 'byClass'>('trend');
 
   useEffect(() => {
     const reload = () => setRefresh((value) => value + 1);
@@ -61,7 +62,8 @@ export default function History() {
       .map((s) => ({ t: s.created_at, score: s.score })),
   })), [tracked, displaySnapshots, cutoff]);
 
-  const gpaSeries = useMemo(() => buildGpaTimeline(tracked, snaps, runs), [snaps, runs, courses]);
+  const gpaHistory = useMemo(() => buildGpaHistory(tracked, snaps, runs), [snaps, runs, courses]);
+  const gpaSeries = useMemo(() => collapseUnchangedPoints(gpaHistory), [gpaHistory]);
 
   const visible = series.filter((s) => !hidden.has(s.id));
   const inRangeGpa = gpaSeries.filter((point) => new Date(point.t).getTime() >= cutoff);
@@ -70,6 +72,19 @@ export default function History() {
   const rangeGpa = beforeRangeGpa && inRangeGpa.length && range !== 'ALL'
     ? [{ t: new Date(cutoff).toISOString(), score: beforeRangeGpa.score }, ...inRangeGpa]
     : inRangeGpa;
+  const historicalInRange = gpaHistory.filter((point) => Date.parse(point.t) >= cutoff);
+  const earlierHistory = gpaHistory.filter((point) => Date.parse(point.t) < cutoff);
+  const historicalBeforeRange = earlierHistory[earlierHistory.length - 1];
+  const impactStart = historicalBeforeRange && historicalInRange.length && range !== 'ALL'
+    ? historicalBeforeRange : historicalInRange[0];
+  const impactEnd = historicalInRange[historicalInRange.length - 1];
+  const impactRows = impactStart && impactEnd ? tracked.map((course, index) => ({
+    id: course.id,
+    name: course.name,
+    color: SERIES_COLORS[index % SERIES_COLORS.length],
+    change: (impactEnd.shares[course.id] ?? 0) - (impactStart.shares[course.id] ?? 0),
+  })).sort((a, b) => Math.abs(b.change) - Math.abs(a.change)) : [];
+  const largestImpact = Math.max(...impactRows.map((row) => Math.abs(row.change)), 0.001);
   const currentGpa = overallGpa(tracked.map((c) => ({ score: c.current_score, level: c.level ?? 'Regular' })));
 
   if (loading) return <main><Skeleton lines={6} /></main>;
@@ -94,15 +109,46 @@ export default function History() {
               {r === 'Q' ? 'Quarter' : r === 'S' ? 'Semester' : r}
             </button>
           ))}
+          {mode === 'gpa' && <div className="history-view-switch" role="group" aria-label="GPA graph view">
+            <button type="button" aria-pressed={gpaView === 'trend'} onClick={() => setGpaView('trend')}>Trend</button>
+            <button type="button" aria-pressed={gpaView === 'byClass'} onClick={() => setGpaView('byClass')}>By class</button>
+          </div>}
         </div>
 
         {mode === 'gpa' ? (
           <>
-            <p className="muted">Current GPA (Ignatius scale): <strong>{currentGpa == null ? '—' : currentGpa.toFixed(3)}</strong></p>
-            <MultiLineChart unit="" series={[{ id: '__gpa__', name: 'Total GPA', color: '#5b8cff', points: rangeGpa }]} />
-            <p className="muted" style={{ fontSize: 12 }}>
-              GPA uses Canvas snapshot grades rounded to whole percentages (.5 up), with your per-course Honors/AP weights; Free periods excluded.
-              Set weights on the Compare tab.
+            <div className="gpa-history-summary">
+              <div><span className="muted">Current GPA · Ignatius scale</span><strong>{currentGpa == null ? '—' : currentGpa.toFixed(3)}</strong></div>
+              {impactStart && impactEnd && <div><span className="muted">Change in selected period</span>
+                <strong className={impactEnd.score === impactStart.score ? 'muted' : impactEnd.score > impactStart.score ? 'up' : 'down'}>
+                  {impactEnd.score > impactStart.score ? '+' : ''}{(impactEnd.score - impactStart.score).toFixed(3)}
+                </strong></div>}
+            </div>
+            {gpaView === 'trend' ? <GpaTrendChart points={rangeGpa} /> : (
+              <div className="gpa-impact-view">
+                <h3>What moved your GPA</h3>
+                <p className="muted">Each bar shows a class’s contribution to your GPA change in this period.</p>
+                {impactStart && impactEnd && impactStart.t !== impactEnd.t ? impactRows.map((row) => (
+                  <div className="gpa-impact-row" key={row.id}>
+                    <span className="gpa-impact-name">{row.name}</span>
+                    <div className="gpa-impact-track" role="img" aria-label={`${row.name}: ${row.change > 0 ? '+' : ''}${row.change.toFixed(3)} GPA`}>
+                      <span className="gpa-impact-midline" />
+                      {Math.abs(row.change) >= 0.0005 && <span className="gpa-impact-bar" style={{
+                        background: row.color,
+                        width: `${Math.max(2, Math.abs(row.change) / largestImpact * 47)}%`,
+                        left: row.change < 0 ? `${50 - Math.max(2, Math.abs(row.change) / largestImpact * 47)}%` : '50%',
+                      }} />}
+                    </div>
+                    <strong className={Math.abs(row.change) < 0.0005 ? 'muted' : row.change > 0 ? 'up' : 'down'}>
+                      {Math.abs(row.change) < 0.0005 ? '0.000' : `${row.change > 0 ? '+' : ''}${row.change.toFixed(3)}`}
+                    </strong>
+                  </div>
+                )) : <p className="muted">There are no two saved GPA checks in this period yet.</p>}
+                <div className="gpa-impact-axis"><span>Lowered GPA</span><span>Raised GPA</span></div>
+              </div>
+            )}
+            <p className="muted gpa-history-note">
+              Class grades can change without moving GPA: Canvas percentages are rounded to whole numbers for the school’s quality-point bands, and class changes can offset each other. GPA is the average across graded classes; Free periods are excluded. Set course levels in Settings.
             </p>
           </>
         ) : (
