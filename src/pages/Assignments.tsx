@@ -5,6 +5,7 @@ import { useAssignments, useCourses } from '../hooks/useData';
 import { Empty, Skeleton } from '../components/ui';
 import { isSubmitted } from '../utils/format';
 import type { Assignment } from '../models/types';
+import { Link } from 'react-router-dom';
 
 type View = 'attention' | 'upcoming' | 'all' | 'graded';
 type Sort = 'due' | 'course' | 'name' | 'score' | 'graded';
@@ -243,6 +244,7 @@ export default function Assignments() {
     <main className="assignments-page">
       <div className="page-heading">
         <div><p className="eyebrow">Coursework</p><h1>Assignments</h1><p className="page-subtitle">Find what is due and keep your submission status organized.</p></div>
+        <Link className="btn" to="/quizzes">Browse quizzes</Link>
       </div>
 
       <div className="assignment-tabs" role="group" aria-label="Assignment views">
@@ -307,6 +309,7 @@ export default function Assignments() {
                   </div>
                 </div>
                 <div className="assignment-actions">
+                  {a.html_url && /\/quizzes\/\d+(?:[/?#]|$)/.test(a.html_url) && <Link className="btn primary" to={`/quiz/${courses.find(c => c.id === a.course_id)?.lms_course_id ?? ''}/${a.html_url.match(/\/quizzes\/(\d+)/)?.[1] ?? ''}`}>Take in site</Link>}
                   {(a.score == null || a.missing) && !a.excused && (
                     <button type="button" className={`btn ${submitted ? '' : 'primary'}`} disabled={busyId === a.id}
                       onClick={() => setSubmission(a, !submitted)}>

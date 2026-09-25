@@ -14,6 +14,8 @@ import WhatIf from './pages/WhatIf';
 import Compare from './pages/Compare';
 import Settings from './pages/Settings';
 import AdminDashboard from './pages/AdminDashboard';
+import QuizTake from './pages/QuizTake';
+import Quizzes from './pages/Quizzes';
 
 export type Appearance = 'current' | 'old' | 'glass' | 'paper';
 let siteLoadSyncUser: string | null = null;
@@ -167,6 +169,8 @@ function Shell() {
           <Route path="/course/:id" element={<CourseDetail />} />
           <Route path="/history" element={<History />} />
           <Route path="/assignments" element={<Assignments />} />
+          <Route path="/quiz/:courseId/:quizId" element={<QuizTake />} />
+          <Route path="/quizzes" element={<Quizzes />} />
           <Route path="/what-if" element={<WhatIf />} />
           <Route path="/compare" element={<Compare />} />
           <Route path="/settings" element={<Settings onNeedsSetup={() => setNeedsSetup(true)} appearance={appearance}

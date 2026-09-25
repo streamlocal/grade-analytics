@@ -213,6 +213,19 @@ table.data tbody tr:hover { background: color-mix(in srgb,var(--accent) 4%,var(-
 .settings-course-type { display: grid; gap: 4px; color: var(--muted); font-size: .8rem; min-width: 118px; }
 .settings-course-type select { width: 100%; }
 .admin-page { max-width: 1500px; }
+.quiz-page { max-width: 1040px; }
+.quiz-questions { display: grid; gap: 16px; }
+.quiz-page .quiz-questions .card h2 { font-size: 1.1rem; }
+.quiz-html { display: block; width: 100%; min-height: 170px; margin: 12px 0; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
+.quiz-question-head, .quiz-status, .quiz-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.quiz-status { margin-bottom: 18px; padding: 12px 16px; background: var(--accent-soft); border-radius: 7px; }
+.quiz-choices, .quiz-blanks { display: grid; gap: 10px; margin: 14px 0; }
+.quiz-choices label { display: flex; gap: 10px; align-items: flex-start; }
+.quiz-blanks label, .quiz-code { display: grid; gap: 6px; max-width: 380px; }
+.quiz-code { margin: 14px 0; }
+.quiz-page textarea, .quiz-text-answer { width: 100%; max-width: 740px; margin: 10px 0 14px; padding: 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--text); }
+.quiz-page textarea { resize: vertical; }
+.quiz-submit { margin-top: 22px; }
 .admin-stats { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 .admin-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-top: 18px; }
 .admin-wide-card { grid-column: 1 / -1; }

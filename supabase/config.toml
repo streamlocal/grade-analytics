@@ -32,3 +32,7 @@ verify_jwt = true
 [functions.admin-dashboard]
 enabled = true
 verify_jwt = true
+
+[functions.quiz]
+enabled = true
+verify_jwt = true
