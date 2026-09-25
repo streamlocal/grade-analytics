@@ -6,9 +6,12 @@ import { Empty, Skeleton } from '../components/ui';
 import { isSubmitted } from '../utils/format';
 import type { Assignment } from '../models/types';
 import { Link } from 'react-router-dom';
+import { useBeta } from '../beta';
+import { useBetaStore } from '../hooks/useBetaStore';
+import { previewAssignment } from '../utils/gradeImpact';
 
 type View = 'attention' | 'upcoming' | 'all' | 'graded';
-type Sort = 'due' | 'course' | 'name' | 'score' | 'graded';
+type Sort = 'due' | 'course' | 'name' | 'score' | 'graded' | 'priority';
 
 function dueTime(a: Assignment): number {
   if (!a.due_at) return Number.POSITIVE_INFINITY;
@@ -87,8 +90,10 @@ function looksLikeQuiz(a: Assignment): boolean {
 }
 
 export default function Assignments() {
+  const beta = useBeta();
+  const betaStore = useBetaStore(beta.priorities);
   const { courses } = useCourses();
-  const { assignments, loading, error, reload } = useAssignments();
+  const { assignments, loading, error, fromCache, savedAt, reload } = useAssignments();
   const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState('');
   const [courseId, setCourseId] = useState('all');
@@ -149,6 +154,13 @@ export default function Assignments() {
   }, []);
 
   const courseNames = useMemo(() => new Map(courses.map((c) => [c.id, c.name])), [courses]);
+  const courseById = useMemo(() => new Map(courses.map((c) => [c.id, c])), [courses]);
+  function priorityScore(a: Assignment) {
+    const dueHours = Math.max(0, (dueTime(a) - now) / 3600_000);
+    const urgency = dueTime(a) < now ? 120 : dueHours < 24 ? 90 : dueHours < 48 ? 65 : dueHours < 168 ? 35 : 0;
+    const effort = betaStore.data.effort[a.id] ?? 30;
+    return (betaStore.data.priorities[a.id] ?? 0) * 100 + urgency + Math.min(30, (a.points_possible ?? 0) / 5) + (effort <= 15 ? 20 : effort <= 30 ? 10 : 0);
+  }
   const counts = useMemo(() => ({
     attention: assignments.filter((a) => needsAttention(a, now)).length,
     upcoming: assignments.filter((a) => isUpcoming(a, now)).length,
@@ -169,6 +181,7 @@ export default function Assignments() {
     if (query && !`${a.name} ${courseNames.get(a.course_id) ?? ''} ${a.category ?? ''}`.toLocaleLowerCase().includes(query)) return false;
     return true;
   }).sort((a, b) => {
+    if (selectedSort === 'priority') return priorityScore(b) - priorityScore(a) || compareDue(a, b);
     if (selectedSort === 'graded') {
       const aObserved = gradeTimes.get(a.id);
       const bObserved = gradeTimes.get(b.id);
@@ -182,7 +195,7 @@ export default function Assignments() {
     if (selectedSort === 'course') return (courseNames.get(a.course_id) ?? '').localeCompare(courseNames.get(b.course_id) ?? '') || compareDue(a, b);
     if (selectedSort === 'score') return (b.score == null ? -1 : b.points_possible ? b.score / b.points_possible : b.score) - (a.score == null ? -1 : a.points_possible ? a.score / a.points_possible : a.score);
     return compareDue(a, b);
-  }), [assignments, selectedView, courseId, search, selectedSort, courseNames, now, gradeTimes]);
+  }), [assignments, selectedView, courseId, search, selectedSort, courseNames, now, gradeTimes, betaStore.data]);
 
   const groups = useMemo(() => {
     if (selectedView === 'graded' && selectedSort === 'graded') {
@@ -252,6 +265,7 @@ export default function Assignments() {
         <div><p className="eyebrow">Coursework</p><h1>Assignments</h1><p className="page-subtitle">Find what is due and keep your submission status organized.</p></div>
         <Link className="btn" to="/quizzes">Browse quizzes</Link>
       </div>
+      {beta.offline && (fromCache || !navigator.onLine) && <div className="beta-saved-warning" role="status">Saved assignments — not live Canvas. Saved {savedAt ? new Date(savedAt).toLocaleString() : 'previously'}. Reconnect and reload to refresh.</div>}
 
       <div className="assignment-tabs" role="group" aria-label="Assignment views">
         {tabs.map((tab) => (
@@ -275,6 +289,7 @@ export default function Assignments() {
         <label>Sort by
           <select value={selectedSort} onChange={(e) => setSort(e.target.value as Sort)}>
             {selectedView === 'graded' && <option value="graded">Most recently graded</option>}
+            {beta.priorities && <option value="priority">Priority & urgency</option>}
             <option value="due">Due date</option>
             <option value="course">Course</option>
             <option value="name">Name</option>
@@ -289,9 +304,9 @@ export default function Assignments() {
       </div>
       {selectedView === 'graded' && selectedSort === 'graded' && <p className="assignment-grade-note">Groups use grade changes found by sync. Grades imported before tracking began appear under “Before that.”</p>}
       {message && <div className="error" role="alert">{message}</div>}
-      {error && <div className="error" role="alert">Assignments could not load: {error} <button type="button" className="btn" onClick={reload}>Try again</button></div>}
+      {error && <div className="error" role="alert">Assignments could not load: {error}{fromCache ? ' Showing saved data.' : ''} <button type="button" className="btn" onClick={reload}>Try again</button></div>}
 
-      {loading ? <Skeleton lines={5} /> : error ? null : rows.length === 0 ? (
+      {loading && !fromCache ? <Skeleton lines={5} /> : error && !fromCache ? null : rows.length === 0 ? (
         <Empty title={selectedView === 'attention' ? 'Nothing needs attention' : selectedView === 'graded' ? 'No graded assignments yet' : 'No assignments found'}
           hint={search || courseId !== 'all' ? 'Try a different search or clear your filters.' : selectedView === 'attention' ? 'Nothing overdue or missing right now.' : selectedView === 'upcoming' ? 'No open assignments are due in the next 14 days.' : selectedView === 'graded' ? 'Graded work will appear here after Canvas returns a score.' : 'Assignments will appear here after a Canvas sync.'} />
       ) : (
@@ -300,6 +315,7 @@ export default function Assignments() {
           {group.label ? <h2 className="assignment-group-title">{group.label}<span>{group.items.length}</span></h2> : <h2 className="sr-only">Assignments list</h2>}
           <div className="assignment-list">{group.items.map((a) => {
             const status = statusOf(a, now);
+            const course = courseById.get(a.course_id);
             const submitted = isSubmitted(a);
             const canvasCourseId = courses.find((course) => course.id === a.course_id)?.lms_course_id;
             const quizPath = canvasCourseId && looksLikeQuiz(a) ? `/quiz-assignment/${canvasCourseId}/${a.lms_assignment_id}` : null;
@@ -315,6 +331,11 @@ export default function Assignments() {
                     <span><strong>Due</strong> {dueLabel(a)}</span>
                     <span><strong>Score</strong> {scoreLabel(a)}</span>
                   </div>
+                  {beta.priorities && a.score == null && <div className="beta-assignment-controls">
+                    <label>Priority <select value={betaStore.data.priorities[a.id] ?? 0} onChange={(event) => void betaStore.save({ ...betaStore.data, priorities: { ...betaStore.data.priorities, [a.id]: Number(event.target.value) } })}><option value={0}>Normal</option><option value={1}>High</option><option value={2}>Critical</option></select></label>
+                    <label>Effort <select value={betaStore.data.effort[a.id] ?? 30} onChange={(event) => void betaStore.save({ ...betaStore.data, effort: { ...betaStore.data.effort, [a.id]: Number(event.target.value) } })}><option value={5}>5 min</option><option value={15}>15 min</option><option value={30}>30 min</option><option value={60}>1 hour</option><option value={120}>2+ hours</option></select></label>
+                  </div>}
+                  {beta.impact && a.score == null && course && a.points_possible != null && a.points_possible > 0 && <details className="beta-impact"><summary>Preview grade impact</summary><p className="muted">Hypothetical only — nothing is sent to Canvas. Approximate when Canvas applies rules beyond saved category weights.</p><div className="beta-impact-grid">{[0.5, 0.7, 0.85, 1].map((fraction) => { const preview = previewAssignment(a, course, assignments, courses, fraction); return <div key={fraction}><strong>{Math.round(fraction * 100)}%</strong><span>Course {preview ? `${preview.courseScore.toFixed(1)}%` : '—'}</span><span>GPA {preview?.gpa?.toFixed(3) ?? '—'}</span></div>; })}</div></details>}
                 </div>
                 <div className="assignment-actions">
                   {quizPath && <Link className="btn primary" to={quizPath} state={{ canvasUrl: a.html_url ?? undefined }}>Open quiz</Link>}

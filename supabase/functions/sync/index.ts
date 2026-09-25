@@ -171,6 +171,7 @@ Deno.serve(async (req) => {
           user_id: userId, lms_course_id: course.lmsCourseId, name: course.name,
           course_code: course.courseCode, teacher_names: course.teachers,
           current_score: course.currentScore, current_grade: course.currentGrade,
+          grade_checked_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })), { onConflict: 'user_id,lms_course_id' });
         if (courseError) throw courseError;
@@ -192,9 +193,13 @@ Deno.serve(async (req) => {
 
       await setStage('Saving assignments');
       await Promise.all(fetchedByCourse.map(async ({ course, fetched }) => {
-        if (!fetched) return;
         const courseId = prevByLms.get(course.lmsCourseId)?.id;
         if (!courseId) return;
+        if (!fetched) {
+          await admin.from('courses').update({ assignments_check_error: 'Canvas assignment check failed; saved assignments kept.' }).eq('id', courseId);
+          return;
+        }
+        await admin.from('courses').update({ assignments_checked_at: new Date().toISOString(), assignments_check_error: null }).eq('id', courseId);
         const { data: previousAssignments, error: previousError } = await admin.from('assignments')
           .select('id,lms_assignment_id,name,score,points_possible,missing,due_at,submitted_at').eq('course_id', courseId);
         if (previousError) throw previousError;
@@ -267,6 +272,7 @@ Deno.serve(async (req) => {
         user_id: userId, lms_course_id: lc.lmsCourseId, name: lc.name,
         course_code: lc.courseCode, teacher_names: lc.teachers,
         current_score: lc.currentScore, current_grade: lc.currentGrade,
+        grade_checked_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
       if (!prev) courseRow.level = detectLevel(lc.name);
@@ -288,7 +294,11 @@ Deno.serve(async (req) => {
 
       // Assignments + Canvas categories (assignment groups) for this course.
       const fetched = fetchedAssignments.get(lc.lmsCourseId);
-      if (!fetched) continue; // partial failure: keep previous assignment data for this course
+      if (!fetched) {
+        await admin.from('courses').update({ assignments_check_error: 'Canvas assignment check failed; saved assignments kept.' }).eq('id', courseId);
+        continue; // partial failure: keep previous assignment data for this course
+      }
+      await admin.from('courses').update({ assignments_checked_at: new Date().toISOString(), assignments_check_error: null }).eq('id', courseId);
       const lmsAssign = fetched.assignments;
       // Store real category names + weights for the What-if simulator.
       await admin.from('courses').update({ categories: fetched.categories }).eq('id', courseId);

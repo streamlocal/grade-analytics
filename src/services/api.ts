@@ -51,4 +51,5 @@ export const api = {
   adminDashboard: (password: string) => authedInvoke('admin-dashboard', { action: 'dashboard', password }),
   adminAccount: (password: string, userId: string) => authedInvoke('admin-dashboard', { action: 'account', password, user_id: userId }),
   quiz: quizInvoke,
+  plannerEvents: (start: string, end: string) => authedInvoke('planner-events', { start, end }),
 };

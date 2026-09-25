@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/AuthContext';
 import { supabase } from './services/supabaseClient';
@@ -17,6 +17,8 @@ import AdminDashboard from './pages/AdminDashboard';
 import QuizTake from './pages/QuizTake';
 import Quizzes from './pages/Quizzes';
 import QuizAssignment from './pages/QuizAssignment';
+import { BetaContext, defaultBetaFlags, parseBetaFlags } from './beta';
+const Planner = lazy(() => import('./pages/Planner'));
 
 export type Appearance = 'current' | 'old' | 'glass' | 'paper';
 let siteLoadSyncUser: string | null = null;
@@ -41,9 +43,30 @@ function Shell() {
   const [appearance, setAppearance] = useState<Appearance>(savedAppearance);
   const [appearanceError, setAppearanceError] = useState('');
   const [adminPassword, setAdminPassword] = useState<string | null>(null);
+  const [betaFlags, setBetaFlags] = useState(defaultBetaFlags);
   const appearanceWrite = useRef<Promise<void>>(Promise.resolve());
   const appearanceVersion = useRef(0);
   const appearanceUser = useRef<string | null>(null);
+  const betaPreferenceEpoch = useRef(0);
+
+  useEffect(() => {
+    const changed = () => { betaPreferenceEpoch.current += 1; };
+    window.addEventListener('ga-beta-preferences-saved', changed);
+    return () => window.removeEventListener('ga-beta-preferences-saved', changed);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    if (!session) { setBetaFlags(defaultBetaFlags); return; }
+    setBetaFlags(parseBetaFlags(session.user.user_metadata?.beta_features));
+    const epoch = betaPreferenceEpoch.current;
+    // Fetch the account's latest preferences on this page load. Auth metadata
+    // updates made in Settings deliberately do not alter the active snapshot.
+    void supabase.auth.getUser().then(({ data }) => {
+      if (active && epoch === betaPreferenceEpoch.current && data.user?.id === session.user.id) setBetaFlags(parseBetaFlags(data.user.user_metadata?.beta_features));
+    });
+    return () => { active = false; };
+  }, [session?.user.id]);
 
   useEffect(() => {
     document.documentElement.dataset.appearance = appearance;
@@ -161,7 +184,7 @@ function Shell() {
   }} />;
 
   return (
-    <div className="workspace">
+    <BetaContext.Provider value={betaFlags}><div className="workspace">
       <TopBar onSync={syncNow} syncing={syncing} />
       <div className="workspace-main">
         {syncError && <div className="site-sync-error error" role="status">{syncError}</div>}
@@ -170,6 +193,7 @@ function Shell() {
           <Route path="/course/:id" element={<CourseDetail />} />
           <Route path="/history" element={<History />} />
           <Route path="/assignments" element={<Assignments />} />
+          <Route path="/planner" element={betaFlags.planner ? <Suspense fallback={<main><p className="muted">Loading planner…</p></main>}><Planner /></Suspense> : <Navigate to="/settings" replace />} />
           <Route path="/quiz/:courseId/:quizId" element={<QuizTake />} />
           <Route path="/quizzes" element={<Quizzes />} />
           <Route path="/quiz-assignment/:courseId/:assignmentId" element={<QuizAssignment />} />
@@ -181,7 +205,7 @@ function Shell() {
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </div>
-    </div>
+    </div></BetaContext.Provider>
   );
 }
 

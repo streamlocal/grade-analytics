@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react';
+import { lazy, Suspense, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { fetchSnapshotsForCourses, useActivity, useAssignments, useCourses, useLastSync } from '../hooks/useData';
 import { useEffect, useState } from 'react';
@@ -8,6 +8,13 @@ import { delta, deltaClass, fmtDateTime, fmtPct, letterFor, scoreAt, isSubmitted
 import { overallGpa, qualityPoints, roundedGpaPercent } from '../utils/gpa';
 import type { CourseSnapshot } from '../models/types';
 import { activityLabel, activityTime } from '../utils/activity';
+import { useBeta } from '../beta';
+import { useLatestChanges } from '../hooks/useLatestChanges';
+const SyncChanges = lazy(() => import('../components/BetaInsights').then((module) => ({ default: module.SyncChanges })));
+const GradeExplanations = lazy(() => import('../components/BetaInsights').then((module) => ({ default: module.GradeExplanations })));
+const Goals = lazy(() => import('../components/BetaInsights').then((module) => ({ default: module.Goals })));
+const ActivityExplorer = lazy(() => import('../components/BetaInsights').then((module) => ({ default: module.ActivityExplorer })));
+const NotificationDigest = lazy(() => import('../components/BetaInsights').then((module) => ({ default: module.NotificationDigest })));
 
 type TrendDays = 1 | 7 | 30;
 const trendDays: TrendDays[] = [1, 7, 30];
@@ -36,12 +43,14 @@ function useAllSnapshots(courseIds: string[], refresh: number) {
 }
 
 export default function Dashboard() {
+  const beta = useBeta();
   const [allTrendDays, setAllTrendDays] = useState<TrendDays>(7);
   const [courseTrendDays, setCourseTrendDays] = useState<Record<string, TrendDays>>({});
   const [now, setNow] = useState(() => Date.now());
   const [snapshotRefresh, setSnapshotRefresh] = useState(0);
-  const { courses, loading, error } = useCourses();
-  const { assignments, loading: assignmentsLoading, error: assignmentsError } = useAssignments();
+  const { courses, loading, error, fromCache: coursesFromCache, savedAt: coursesSavedAt } = useCourses();
+  const { assignments, loading: assignmentsLoading, error: assignmentsError, fromCache: assignmentsFromCache, savedAt: assignmentsSavedAt } = useAssignments();
+  const latestChanges = useLatestChanges(beta.changes || beta.explanations || beta.notifications);
   const activity = useActivity();
   const { run: lastSync } = useLastSync();
   const tracked = useMemo(() => courses.filter((c) => c.tracked), [courses]);
@@ -74,14 +83,15 @@ export default function Dashboard() {
   // Put the most actionable card in the left-hand, first-read position.
   const priorityOrder = needsAttention.length ? ['attention', 'upcoming'] as const : ['upcoming', 'attention'] as const;
 
-  if (loading) return <main><Skeleton lines={6} /></main>;
-  if (error) return <main><div className="error">{error}</div></main>;
+  if (loading && !courses.length) return <main><Skeleton lines={6} /></main>;
+  if (error && !courses.length) return <main><div className="error">{error}</div></main>;
   if (!tracked.length) return <main><Empty title="No tracked courses yet" hint="Go to Settings → Connection to discover courses and run your first sync." /></main>;
 
   return (
     <main className="dashboard-page">
       <div className="page-heading"><div><p className="eyebrow">Overview</p><h1>Dashboard</h1><p className="page-subtitle">Your Canvas grades at a glance</p></div><span className="heading-meta">Last sync {fmtDateTime(lastSync?.started_at)}</span></div>
-      {assignmentsError && <div className="error dashboard-assignment-error" role="alert">Assignment data is unavailable. Open Assignments to try again.</div>}
+      {beta.offline && (coursesFromCache || assignmentsFromCache || !navigator.onLine) && <div className="beta-saved-warning" role="status">Saved data — not live Canvas. Grades saved {fmtDateTime(coursesSavedAt)}, assignments saved {fmtDateTime(assignmentsSavedAt)}. Reconnect and reload to refresh.</div>}
+      {assignmentsError && <div className="error dashboard-assignment-error" role="alert">{assignmentsFromCache ? 'Canvas assignments are unavailable; showing saved data.' : 'Assignment data is unavailable. Open Assignments to try again.'}</div>}
       <div className="grid stats dashboard-stats">
         <Card><div className="stat"><div className="l">Overall average</div><div className="v">{fmtPct(avg)}</div></div></Card>
         <Card><div className="stat"><div className="l">Current GPA (Ignatius scale)</div><div className="v">{gpa == null ? '—' : gpa.toFixed(3)}</div></div></Card>
@@ -90,6 +100,8 @@ export default function Dashboard() {
         <Card><div className="stat"><div className="l">Needs attention</div><div className="v">{assignmentsLoading || assignmentsError ? '—' : needsAttention.length}</div></div></Card>
         <Card><div className="stat"><div className="l">Graded assignments</div><div className="v">{assignmentsLoading || assignmentsError ? '—' : graded.length}</div></div></Card>
       </div>
+
+      {beta.changes && <Suspense fallback={null}><SyncChanges {...latestChanges} /></Suspense>}
 
       <div className="dashboard-priority">
         {priorityOrder.map((section) => section === 'attention' ? (
@@ -150,11 +162,16 @@ export default function Dashboard() {
                   </button>;
                 })}
               </div>
+              {beta.freshness && <div className="beta-freshness"><small>Grade checked {fmtDateTime(c.grade_checked_at)}</small><small>Assignments checked {fmtDateTime(c.assignments_checked_at)}</small>{(c.assignments_check_error || !c.assignments_checked_at || (c.grade_checked_at && Date.now() - new Date(c.assignments_checked_at).getTime() > 24 * 3600_000)) && <strong className="goal-risk">Assignment data may be stale{c.assignments_check_error ? ` — ${c.assignments_check_error}` : ''}</strong>}</div>}
               {miss > 0 && <span className="course-missing">{miss} missing</span>}
             </Card>
           );
         })}
       </div>
+
+      {beta.explanations && <Suspense fallback={null}><GradeExplanations events={latestChanges.events} courses={tracked} /></Suspense>}
+      {beta.goals && <Suspense fallback={null}><Goals courses={tracked} /></Suspense>}
+      {beta.notifications && <Suspense fallback={null}><NotificationDigest events={latestChanges.events} run={latestChanges.run} assignments={assignments} courses={tracked} /></Suspense>}
 
       <div className="section-heading activity-heading"><div><h2>Activity</h2><p className="muted">Last 24 hours · Unseen announcements stay for up to 7 days</p></div></div>
       <div className="feed">
@@ -177,6 +194,7 @@ export default function Dashboard() {
           );
         })}
       </div>
+      {beta.activity && <Suspense fallback={null}><ActivityExplorer courses={tracked} /></Suspense>}
     </main>
   );
 }

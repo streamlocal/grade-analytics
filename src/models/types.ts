@@ -12,6 +12,9 @@ export interface Course {
   tracked: boolean;
   level: CourseLevel;
   categories: { name: string; weight: number }[];
+  grade_checked_at?: string | null;
+  assignments_checked_at?: string | null;
+  assignments_check_error?: string | null;
 }
 
 export interface CourseSnapshot {

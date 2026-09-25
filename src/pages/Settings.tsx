@@ -8,6 +8,9 @@ import { fmtDateTime } from '../utils/format';
 import type { Appearance } from '../App';
 import CanvasTokenGuide from '../components/CanvasTokenGuide';
 import type { CourseLevel } from '../utils/gpa';
+import { betaFeatures, parseBetaFlags, type BetaFlags } from '../beta';
+import { useBeta } from '../beta';
+import { useBetaStore } from '../hooks/useBetaStore';
 
 interface ConnStatus {
   connected: boolean;
@@ -34,7 +37,29 @@ export default function Settings({ onNeedsSetup, appearance, onAppearanceChange,
   onAdminVerified: (password: string) => void;
 }) {
   const navigate = useNavigate();
-  const { signOut, remember, setRemember } = useAuth();
+  const activeBeta = useBeta();
+  const betaStore = useBetaStore(activeBeta.notifications);
+  const { signOut, remember, setRemember, session } = useAuth();
+  const [betaDraft, setBetaDraft] = useState<BetaFlags>(() => parseBetaFlags(session?.user.user_metadata?.beta_features));
+  const [betaMessage, setBetaMessage] = useState('');
+  const [betaSaving, setBetaSaving] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void supabase.auth.getUser().then(({ data }) => {
+      if (active && data.user && data.user.id === session?.user.id) setBetaDraft(parseBetaFlags(data.user.user_metadata?.beta_features));
+    });
+    return () => { active = false; };
+  }, [session?.user.id]);
+
+  async function saveBeta() {
+    setBetaSaving(true);
+    setBetaMessage('');
+    const { error } = await supabase.auth.updateUser({ data: { beta_features: betaDraft } });
+    if (!error) window.dispatchEvent(new Event('ga-beta-preferences-saved'));
+    setBetaMessage(error ? `Could not save beta preferences: ${error.message}` : 'Saved to your account. Reload this page to apply these choices.');
+    setBetaSaving(false);
+  }
   const [conn, setConn] = useState<ConnStatus | null>(null);
   const [connectionLoading, setConnectionLoading] = useState(true);
   const [msg, setMsg] = useState('');
@@ -282,6 +307,20 @@ export default function Settings({ onNeedsSetup, appearance, onAppearanceChange,
           </div>
           {appearanceError && <p className="error appearance-error" role="status">{appearanceError}</p>}
         </Card>
+
+        <Card className="settings-card settings-card-wide" id="beta-features">
+          <div className="settings-card-head"><div><span className="settings-kicker">Optional</span><h2>Beta features</h2></div><span className="status-pill neutral">Off by default</span></div>
+          <p className="muted">Enable only the features you want. Each switch is saved to your account across both sites and takes effect on your next reload.</p>
+          <div className="beta-settings-list">{betaFeatures.map((feature) => <label key={feature.id} className="settings-checkbox beta-setting">
+            <input type="checkbox" checked={betaDraft[feature.id]} onChange={(event) => setBetaDraft((current) => ({ ...current, [feature.id]: event.target.checked }))} />
+            <span><strong>{feature.name}</strong><small>{feature.description}</small></span>
+          </label>)}</div>
+          {betaMessage && <p className={betaMessage.startsWith('Could not') ? 'error' : 'muted'} role="status">{betaMessage}</p>}
+          <div className="settings-actions"><button type="button" className="btn primary" disabled={betaSaving} onClick={saveBeta}>{betaSaving ? 'Saving…' : 'Save beta features'}</button></div>
+        </Card>
+        {activeBeta.notifications && <Card className="settings-card settings-card-wide"><div className="settings-card-head"><div><span className="settings-kicker">Beta</span><h2>Notification choices</h2></div></div><p className="muted">Browser permission is requested from the dashboard only if you choose to allow alerts. Updates are bundled into one digest and shown only while this tab is in the background.</p><div className="beta-notification-list">{([
+          ['grades', 'New grades'], ['dueDates', 'Moved due dates'], ['dueSoon', 'Assignments due within 24 hours'], ['goalRisk', 'Goals near or below target'],
+        ] as const).map(([key, label]) => <label className="settings-checkbox" key={key}><input type="checkbox" checked={betaStore.data.notify[key]} onChange={(event) => void betaStore.save({ ...betaStore.data, notify: { ...betaStore.data.notify, [key]: event.target.checked } })} /><span><strong>{label}</strong></span></label>)}</div>{betaStore.error && <p className="error">{betaStore.error}</p>}</Card>}
 
         <Card className="settings-card">
           <div className="settings-card-head">

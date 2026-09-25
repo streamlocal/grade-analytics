@@ -2,9 +2,16 @@ import { useEffect, useRef, useState } from 'react';
 import { supabase } from '../services/supabaseClient';
 import type { Assignment, ActivityEvent, Course, CourseSnapshot, SyncRun } from '../models/types';
 import { ANNOUNCEMENT_WEEK_MS, activityTime, visibleActivity } from '../utils/activity';
+import { useBeta } from '../beta';
+import { useAuth } from './AuthContext';
+import { readOffline, writeOffline } from '../utils/offline';
 
 export function useCourses() {
-  const [courses, setCourses] = useState<Course[]>([]);
+  const beta = useBeta();
+  const { user } = useAuth();
+  const cached = beta.offline ? readOffline<Course>(user?.id, 'courses') : null;
+  const [courses, setCourses] = useState<Course[]>(cached?.rows ?? []);
+  const [fromCache, setFromCache] = useState(Boolean(cached));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const hasLoaded = useRef(false);
@@ -18,10 +25,16 @@ export function useCourses() {
       setError(null);
     }
     const { data, error } = await supabase
-      .from('courses').select('id,lms_course_id,name,course_code,teacher_names,current_score,current_grade,points_possible,tracked,level,categories').order('name');
-    if (error) setError(error.message);
+      .from('courses').select('id,lms_course_id,name,course_code,teacher_names,current_score,current_grade,points_possible,tracked,level,categories,grade_checked_at,assignments_checked_at,assignments_check_error').order('name');
+    if (error) {
+      setError(error.message);
+      const saved = beta.offline ? readOffline<Course>(user?.id, 'courses') : null;
+      if (saved) { setCourses(saved.rows); setFromCache(true); hasLoaded.current = true; }
+    }
     else {
       setCourses((data ?? []) as Course[]);
+      setFromCache(false);
+      if (beta.offline) writeOffline(user?.id, 'courses', (data ?? []) as Course[]);
       hasLoaded.current = true;
       setError(null);
     }
@@ -31,8 +44,8 @@ export function useCourses() {
     void load();
     window.addEventListener('ga-sync-complete', load);
     return () => window.removeEventListener('ga-sync-complete', load);
-  }, []);
-  return { courses, loading, error, reload: load };
+  }, [beta.offline, user?.id]);
+  return { courses, loading, error, fromCache, savedAt: cached?.savedAt ?? null, reload: load };
 }
 
 export function useSnapshots(courseId: string | null) {
@@ -75,12 +88,16 @@ export async function fetchSnapshotsForCourses(courseIds: string[]): Promise<Cou
 }
 
 export function useAssignments(courseId?: string | null) {
-  const [rows, setRows] = useState<Assignment[]>([]);
+  const beta = useBeta();
+  const { user } = useAuth();
+  const cached = beta.offline && !courseId ? readOffline<Assignment>(user?.id, 'assignments') : null;
+  const [rows, setRows] = useState<Assignment[]>(cached?.rows ?? []);
+  const [fromCache, setFromCache] = useState(Boolean(cached));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [loadedFor, setLoadedFor] = useState<string | null | undefined>(undefined);
+  const [loadedFor, setLoadedFor] = useState<string | null | undefined>(cached ? courseId : undefined);
   const [tick, setTick] = useState(0);
-  const loadedForRef = useRef<string | null | undefined>(undefined);
+  const loadedForRef = useRef<string | null | undefined>(cached ? courseId : undefined);
   const reload = () => setTick((t) => t + 1);
   useEffect(() => {
     window.addEventListener('ga-sync-complete', reload);
@@ -111,8 +128,10 @@ export function useAssignments(courseId?: string | null) {
         if (cancelled) return;
         if (queryError) {
           setError(queryError.message);
+          const saved = beta.offline && !courseId ? readOffline<Assignment>(user?.id, 'assignments') : null;
+          if (saved) { setRows(saved.rows); setFromCache(true); setLoadedFor(courseId); loadedForRef.current = courseId; }
           // Keep known assignments visible if a background refresh fails.
-          if (newScope) {
+          if (newScope && !saved) {
             setRows([]);
             setLoadedFor(courseId);
             loadedForRef.current = courseId;
@@ -125,6 +144,8 @@ export function useAssignments(courseId?: string | null) {
       }
       if (!cancelled) {
         setRows(all);
+        setFromCache(false);
+        if (beta.offline && !courseId) writeOffline(user?.id, 'assignments', all);
         setLoadedFor(courseId);
         loadedForRef.current = courseId;
         setError(null);
@@ -133,11 +154,13 @@ export function useAssignments(courseId?: string | null) {
     }
     void load();
     return () => { cancelled = true; };
-  }, [courseId, tick]);
+  }, [courseId, tick, beta.offline, user?.id]);
   return {
     assignments: loadedFor === courseId ? rows : [],
     loading: loadedFor !== courseId || loading,
     error: loadedFor === courseId ? error : null,
+    fromCache,
+    savedAt: cached?.savedAt ?? null,
     reload,
   };
 }
@@ -195,7 +218,7 @@ export function useActivity() {
     if (updateError || !data) {
       setError('Could not mark that item as seen. Please try again.');
       setEvents((current) => [...current, event].sort((a, b) => activityTime(b) - activityTime(a)));
-    }
+    } else window.dispatchEvent(new Event('ga-activity-change'));
   }
 
   return { events, loading, error, markSeen, reload: () => setTick((value) => value + 1) };

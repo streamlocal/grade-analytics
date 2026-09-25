@@ -36,3 +36,7 @@ verify_jwt = true
 [functions.quiz]
 enabled = true
 verify_jwt = true
+
+[functions.planner-events]
+enabled = true
+verify_jwt = true

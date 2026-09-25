@@ -1,9 +1,10 @@
 import { useId, type ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../hooks/AuthContext';
+import { useBeta } from '../beta';
 
-export function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return <section className={`card ${className}`}>{children}</section>;
+export function Card({ children, className = '', id }: { children: ReactNode; className?: string; id?: string }) {
+  return <section id={id} className={`card ${className}`}>{children}</section>;
 }
 
 export function Skeleton({ lines = 3 }: { lines?: number }) {
@@ -34,10 +35,12 @@ export function SyncHelp({ first = false }: { first?: boolean }) {
 
 export function TopBar({ onSync, syncing }: { onSync: () => void; syncing: boolean }) {
   const { user, signOut } = useAuth();
+  const beta = useBeta();
   const links = [
     { to: '/', label: 'Dashboard', end: true },
     { to: '/history', label: 'History', end: false },
     { to: '/assignments', label: 'Assignments', end: false },
+    ...(beta.planner ? [{ to: '/planner', label: 'Planner', end: false }] : []),
     { to: '/compare', label: 'Compare', end: false },
     { to: '/what-if', label: 'What-if', end: false },
     { to: '/settings', label: 'Settings', end: false },
