@@ -91,6 +91,28 @@ async function dashboard(admin: ReturnType<typeof adminClient>) {
   };
 }
 
+async function accountDashboard(admin: ReturnType<typeof adminClient>, userId: string) {
+  const [account, courses, assignments, events] = await Promise.all([
+    admin.auth.admin.getUserById(userId),
+    admin.from('courses').select('id,name,course_code,teacher_names,current_score,current_grade,tracked,level,updated_at').eq('user_id', userId).order('name'),
+    admin.from('assignments').select('id,course_id,name,due_at,points_possible,score,grade,missing,late,excused,submitted_at,html_url,updated_at').eq('user_id', userId).order('due_at', { ascending: true, nullsFirst: false }).limit(200),
+    admin.from('activity_events').select('id,type,title,message,created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(30),
+  ]);
+  if (account.error) throw account.error;
+  if (courses.error) throw courses.error;
+  if (assignments.error) throw assignments.error;
+  if (events.error) throw events.error;
+  const courseRows = (courses.data ?? []) as { id: string; name: string; course_code: string | null; teacher_names: string[] | null; current_score: number | null; current_grade: string | null; tracked: boolean; level: string | null; updated_at: string | null }[];
+  const assignmentRows = (assignments.data ?? []) as { id: string; course_id: string; name: string; due_at: string | null; points_possible: number | null; score: number | null; grade: string | null; missing: boolean; late: boolean; excused: boolean; submitted_at: string | null; html_url: string | null; updated_at: string | null }[];
+  const courseName = new Map(courseRows.map((course) => [course.id, course.name]));
+  return {
+    account: { user_id: userId, email: account.data.user?.email ?? 'Unknown account', created_at: account.data.user?.created_at ?? null },
+    courses: courseRows,
+    assignments: assignmentRows.map((assignment) => ({ ...assignment, course_name: courseName.get(assignment.course_id) ?? 'Unknown course' })),
+    recent_activity: events.data ?? [],
+  };
+}
+
 Deno.serve(async (req) => {
   const pre = preflight(req);
   if (pre) return pre;
@@ -127,6 +149,12 @@ Deno.serve(async (req) => {
     if (action === 'dashboard') {
       if (!(await verifyPassword(admin, user.id, password))) return json({ error: 'Administrator password is incorrect.' }, 401);
       return json(await dashboard(admin));
+    }
+    if (action === 'account') {
+      if (!(await verifyPassword(admin, user.id, password))) return json({ error: 'Administrator password is incorrect.' }, 401);
+      const userId = String(body.user_id ?? '');
+      if (!userId) return json({ error: 'Account id is required.' }, 400);
+      return json(await accountDashboard(admin, userId));
     }
     return json({ error: 'Unknown admin action.' }, 400);
   } catch (error) {

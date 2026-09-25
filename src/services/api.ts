@@ -34,4 +34,5 @@ export const api = {
   adminEnroll: (displayName: string, password: string) => authedInvoke('admin-dashboard', { action: 'enroll', display_name: displayName, password }),
   adminVerify: (password: string) => authedInvoke('admin-dashboard', { action: 'verify', password }),
   adminDashboard: (password: string) => authedInvoke('admin-dashboard', { action: 'dashboard', password }),
+  adminAccount: (password: string, userId: string) => authedInvoke('admin-dashboard', { action: 'account', password, user_id: userId }),
 };
