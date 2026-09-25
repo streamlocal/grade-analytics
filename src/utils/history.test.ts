@@ -6,7 +6,7 @@ const base = '2026-09-22T12:00:00Z';
 const iso = (minute: number) => new Date(Date.parse(base) + minute * 60_000).toISOString();
 const course = (id: string): Course => ({ id, lms_course_id: id, name: id, course_code: null,
   teacher_names: [], current_score: null, current_grade: null, points_possible: null, tracked: true,
-  level: 'Regular', score_override: null, categories: [] });
+  level: 'Regular', categories: [] });
 const snap = (id: string, minute: number, score: number): CourseSnapshot => ({ id: `${id}-${minute}`, course_id: id,
   score, grade: null, points_possible: null, created_at: iso(minute) });
 const run = (minute: number): SyncRun => ({ id: String(minute), status: 'complete', stage: 'Complete', error: null,

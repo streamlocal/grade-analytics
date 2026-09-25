@@ -207,7 +207,11 @@ table.data tbody tr:hover { background: color-mix(in srgb,var(--accent) 4%,var(-
 .settings-token-details summary { cursor: pointer; color: var(--accent); font-weight: 650; }
 .settings-token-details .canvas-token-guide { margin-top: 18px; }
 .settings-class-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px 24px; margin: 9px 0 16px; }
-.settings-class-list .settings-checkbox { margin-bottom: 10px; }
+.settings-class-list .settings-checkbox { margin-bottom: 0; }
+.settings-class-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.settings-class-row .settings-checkbox { flex: 1; min-width: 0; }
+.settings-course-type { display: grid; gap: 4px; color: var(--muted); font-size: .8rem; min-width: 118px; }
+.settings-course-type select { width: 100%; }
 .site-sync-error { margin: 20px clamp(20px,3vw,48px) 0; }
 .assignment-tabs { display: flex; gap: 5px; overflow-x: auto; border-bottom: 1px solid var(--border); margin: 0 0 22px; scrollbar-width: thin; }
 .assignment-tab { flex: none; display: flex; align-items: center; gap: 9px; min-height: 45px; padding: 9px 15px; color: var(--muted); background: transparent; border: 0; border-bottom: 3px solid transparent; font-size: .9rem; font-weight: 600; }

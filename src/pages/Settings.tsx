@@ -6,6 +6,7 @@ import { Card, SyncHelp } from '../components/ui';
 import { fmtDateTime } from '../utils/format';
 import type { Appearance } from '../App';
 import CanvasTokenGuide from '../components/CanvasTokenGuide';
+import type { CourseLevel } from '../utils/gpa';
 
 interface ConnStatus {
   connected: boolean;
@@ -21,6 +22,8 @@ const appearances: { id: Appearance; name: string; description: string }[] = [
   { id: 'glass', name: 'Glass', description: 'Frosted Windows-style panels' },
   { id: 'paper', name: 'Paper', description: 'Quiet and minimal' },
 ];
+const courseLevels: CourseLevel[] = ['Regular', 'Honors', 'AP', 'Free'];
+type SettingsCourse = { id: string; lms_course_id: string; name: string; tracked: boolean; level: CourseLevel };
 
 export default function Settings({ onNeedsSetup, appearance, onAppearanceChange, appearanceError }: {
   onNeedsSetup: () => void;
@@ -36,17 +39,17 @@ export default function Settings({ onNeedsSetup, appearance, onAppearanceChange,
   const [syncing, setSyncing] = useState(false);
   const [sessions, setSessions] = useState<{ id: string; created_at: string; last_active?: string; current?: boolean }[]>([]);
   const [lastSync, setLastSync] = useState<string>('—');
-  const [classes, setClasses] = useState<{ id: string; lms_course_id: string; name: string; tracked: boolean }[]>([]);
+  const [classes, setClasses] = useState<SettingsCourse[]>([]);
   const [selectedClasses, setSelectedClasses] = useState<string[]>([]);
   const [classesLoading, setClassesLoading] = useState(true);
   const [classesMessage, setClassesMessage] = useState('');
 
   async function loadClasses() {
     setClassesLoading(true);
-    const { data, error } = await supabase.from('courses').select('id,lms_course_id,name,tracked').order('name');
+    const { data, error } = await supabase.from('courses').select('id,lms_course_id,name,tracked,level').order('name');
     if (error) setClassesMessage(`Could not load classes: ${error.message}`);
     else {
-      const rows = (data ?? []) as { id: string; lms_course_id: string; name: string; tracked: boolean }[];
+      const rows = (data ?? []) as SettingsCourse[];
       setClasses(rows);
       setSelectedClasses(rows.filter((course) => course.tracked).map((course) => course.lms_course_id));
     }
@@ -75,7 +78,12 @@ export default function Settings({ onNeedsSetup, appearance, onAppearanceChange,
   async function run(fn: () => Promise<unknown>, label: string) {
     setBusy(true); setMsg(label + '…');
     if (label === 'Sync now') setSyncing(true);
-    try { await fn(); setMsg(label + ' — done.'); await refresh(); }
+    try {
+      await fn();
+      if (label === 'Sync now') window.dispatchEvent(new Event('ga-sync-complete'));
+      setMsg(label + ' — done.');
+      await refresh();
+    }
     catch (e: unknown) { setMsg(`${label} failed: ${e instanceof Error ? e.message : 'error'}`); }
     finally { setBusy(false); setSyncing(false); }
   }
@@ -102,6 +110,22 @@ export default function Settings({ onNeedsSetup, appearance, onAppearanceChange,
     } catch (error) {
       setClassesMessage(`Could not check Canvas: ${error instanceof Error ? error.message : 'Please try again.'}`);
     } finally { setBusy(false); }
+  }
+
+  async function setCourseLevel(course: SettingsCourse, level: CourseLevel) {
+    setBusy(true);
+    setClassesMessage(`Saving ${course.name} course type…`);
+    try {
+      const { error } = await supabase.from('courses').update({ level }).eq('id', course.id);
+      if (error) throw error;
+      setClasses((current) => current.map((row) => row.id === course.id ? { ...row, level } : row));
+      setClassesMessage(`${course.name} course type saved.`);
+      window.dispatchEvent(new Event('ga-sync-complete'));
+    } catch (error) {
+      setClassesMessage(`Could not save course type: ${error instanceof Error ? error.message : 'Please try again.'}`);
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -160,13 +184,20 @@ export default function Settings({ onNeedsSetup, appearance, onAppearanceChange,
             <div><span className="settings-kicker">Canvas</span><h2>Tracked classes</h2></div>
             <span className="status-pill neutral">{selectedClasses.length} selected</span>
           </div>
-          <p className="muted">Choose which Canvas classes appear on your dashboard. You can change this after sign-up without replacing your token.</p>
+          <p className="muted">Choose which Canvas classes appear on your dashboard and set their actual GPA course types. Changes to these types affect GPA; test changes in Compare do not.</p>
           {classesLoading ? <p className="muted">Loading classes…</p> : classes.length ? <div className="settings-class-list">
-            {classes.map((course) => <label key={course.id} className="settings-checkbox">
-              <input type="checkbox" checked={selectedClasses.includes(course.lms_course_id)}
-                onChange={(event) => setSelectedClasses((current) => event.target.checked ? [...current, course.lms_course_id] : current.filter((id) => id !== course.lms_course_id))} />
-              <span><strong>{course.name}</strong></span>
-            </label>)}
+            {classes.map((course) => <div key={course.id} className="settings-class-row">
+              <label className="settings-checkbox">
+                <input type="checkbox" checked={selectedClasses.includes(course.lms_course_id)}
+                  onChange={(event) => setSelectedClasses((current) => event.target.checked ? [...current, course.lms_course_id] : current.filter((id) => id !== course.lms_course_id))} />
+                <span><strong>{course.name}</strong></span>
+              </label>
+              <label className="settings-course-type">GPA course type
+                <select value={course.level ?? 'Regular'} disabled={busy} onChange={(event) => void setCourseLevel(course, event.target.value as CourseLevel)}>
+                  {courseLevels.map((level) => <option key={level} value={level}>{level}</option>)}
+                </select>
+              </label>
+            </div>)}
           </div> : <p className="muted">No classes found yet. Connect Canvas, then check for classes.</p>}
           {classesMessage && <p className="muted" role="status">{classesMessage}</p>}
           <div className="settings-actions">

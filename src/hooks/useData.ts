@@ -18,7 +18,7 @@ export function useCourses() {
       setError(null);
     }
     const { data, error } = await supabase
-      .from('courses').select('*').order('name');
+      .from('courses').select('id,lms_course_id,name,course_code,teacher_names,current_score,current_grade,points_possible,tracked,level,categories').order('name');
     if (error) setError(error.message);
     else {
       setCourses((data ?? []) as Course[]);

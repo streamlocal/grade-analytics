@@ -1,26 +1,26 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '../services/supabaseClient';
 import { fetchSnapshotsForCourses, useCourses } from '../hooks/useData';
 import { Card, Skeleton } from '../components/ui';
 import { delta, scoreAt } from '../utils/format';
-import { effectiveScore, letterGrade, overallGpa, qualityPoints, roundedGpaPercent, type CourseLevel } from '../utils/gpa';
+import { letterGrade, overallGpa, qualityPoints, roundedGpaPercent, type CourseLevel } from '../utils/gpa';
 import type { Course, CourseSnapshot } from '../models/types';
 
 const LEVELS: CourseLevel[] = ['Regular', 'Honors', 'AP', 'Free'];
 
-function GradeInput({ course, onSaved }: { course: Course; onSaved: () => void }) {
-  const [val, setVal] = useState(course.score_override != null ? String(course.score_override) : '');
+function GradeInput({ course, testScore, onChange }: { course: Course; testScore: number | undefined; onChange: (score: number | null) => void }) {
+  const [val, setVal] = useState(testScore == null ? '' : String(testScore));
   useEffect(() => {
-    setVal(course.score_override != null ? String(course.score_override) : '');
-  }, [course.score_override]);
+    setVal(testScore == null ? '' : String(testScore));
+  }, [testScore]);
 
-  async function commit() {
+  function commit() {
     const trimmed = val.trim();
     const num = trimmed === '' ? null : Number(trimmed);
-    if (trimmed !== '' && (Number.isNaN(num) || num! < 0 || num! > 150)) return;
-    if (num === course.score_override) return;
-    await supabase.from('courses').update({ score_override: num }).eq('id', course.id);
-    onSaved();
+    if (trimmed !== '' && (!Number.isFinite(num) || num! < 0 || num! > 150)) {
+      setVal(testScore == null ? '' : String(testScore));
+      return;
+    }
+    onChange(num);
   }
 
   return (
@@ -30,17 +30,21 @@ function GradeInput({ course, onSaved }: { course: Course; onSaved: () => void }
         onChange={(e) => setVal(e.target.value)} onBlur={commit}
         onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
         style={{ width: 84 }} aria-label={`Grade for ${course.name}`} />
-      {course.score_override != null && (
+      {testScore != null && (
         <button className="btn ghost" title="Reset to Canvas grade"
-          onClick={async () => { await supabase.from('courses').update({ score_override: null }).eq('id', course.id); onSaved(); }}>↺</button>
+          onClick={() => onChange(null)}>↺</button>
       )}
     </span>
   );
 }
 
 export default function Compare() {
-  const { courses, loading, reload } = useCourses();
+  const { courses, loading } = useCourses();
   const [snaps, setSnaps] = useState<Record<string, CourseSnapshot[]>>({});
+  // Test inputs live only on this page. They never write to courses or affect
+  // the Dashboard, and unmounting Compare resets them automatically.
+  const [testScores, setTestScores] = useState<Record<string, number>>({});
+  const [testLevels, setTestLevels] = useState<Record<string, CourseLevel>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -55,15 +59,22 @@ export default function Compare() {
     return () => { cancelled = true; };
   }, [courses]);
 
-  async function setLevel(id: string, level: CourseLevel) {
-    await supabase.from('courses').update({ level }).eq('id', id);
-    reload();
+  function setTestScore(id: string, score: number | null) {
+    setTestScores((current) => {
+      const next = { ...current };
+      if (score == null) delete next[id];
+      else next[id] = score;
+      return next;
+    });
   }
+
+  const scoreFor = (course: Course) => testScores[course.id] ?? course.current_score;
+  const levelFor = (course: Course): CourseLevel => testLevels[course.id] ?? course.level ?? 'Regular';
 
   if (loading) return <main><Skeleton /></main>;
   const tracked = courses.filter((c) => c.tracked);
-  const testingGrades = tracked.some((c) => c.score_override != null);
-  const gpa = overallGpa(tracked.map((c) => ({ score: effectiveScore(c), level: c.level ?? 'Regular' })));
+  const testingGrades = tracked.some((c) => testScores[c.id] != null || testLevels[c.id] != null);
+  const gpa = overallGpa(tracked.map((c) => ({ score: scoreFor(c), level: levelFor(c) })));
   const bar = (v: number | null, max = 100) => (
     <div style={{ background: 'var(--bg-soft)', borderRadius: 6, height: 10, minWidth: 120 }}>
       <div style={{ width: `${Math.max(0, Math.min(100, ((v ?? 0) / max) * 100))}%`, height: '100%', borderRadius: 6, background: 'var(--accent)' }} />
@@ -80,17 +91,26 @@ export default function Compare() {
           <thead><tr><th>Course</th><th>Grade %</th><th>GPA uses</th><th>Letter (display)</th><th>Level</th><th>Quality pts</th></tr></thead>
           <tbody>
             {tracked.map((c) => {
-              const lvl = (c.level ?? 'Regular') as CourseLevel;
-              const score = effectiveScore(c);
+              const lvl = levelFor(c);
+              const score = scoreFor(c);
               const qp = qualityPoints(score, lvl);
               return (
                 <tr key={c.id}>
-                  <td>{c.name}{c.score_override != null && <span className="muted" title="Manual override"> · manual</span>}</td>
-                  <td><GradeInput course={c} onSaved={reload} /></td>
+                  <td>{c.name}{(testScores[c.id] != null || testLevels[c.id] != null) && <span className="muted" title="Temporary test value"> · testing</span>}</td>
+                  <td><GradeInput course={c} testScore={testScores[c.id]} onChange={(score) => setTestScore(c.id, score)} /></td>
                   <td>{lvl === 'Free' ? 'excluded' : roundedGpaPercent(score) == null ? '—' : `${roundedGpaPercent(score)}%`}</td>
-                  <td>{c.score_override != null ? letterGrade(score) : c.current_grade ?? letterGrade(score)}</td>
+                  <td>{testScores[c.id] != null ? letterGrade(score) : c.current_grade ?? letterGrade(score)}</td>
                   <td>
-                    <select value={lvl} onChange={(e) => setLevel(c.id, e.target.value as CourseLevel)} style={{ maxWidth: 130 }}>
+                    <select value={lvl} aria-label={`Test course type for ${c.name}`}
+                      onChange={(e) => {
+                        const selected = e.target.value as CourseLevel;
+                        setTestLevels((current) => {
+                          const next = { ...current };
+                          if (selected === (c.level ?? 'Regular')) delete next[c.id];
+                          else next[c.id] = selected;
+                          return next;
+                        });
+                      }} style={{ maxWidth: 130 }}>
                       {LEVELS.map((l) => <option key={l} value={l}>{l}</option>)}
                     </select>
                   </td>
@@ -101,14 +121,14 @@ export default function Compare() {
           </tbody>
         </table>
         <p className="muted" style={{ fontSize: 12 }}>
-          Type a test grade (blank = use Canvas). Test grades are saved to your account and affect this comparison only; Dashboard and History always show Canvas grades.
+          Type a test grade (blank = use Canvas). Grade and course-type changes here are temporary and reset when you leave Compare. Set your actual course types in Settings; Dashboard and History always show Canvas grades.
           Each course percentage rounds to the nearest whole percent (.5 up) before quality points are assigned. Ignatius scale: 100→4.3 … 65→1.0, below 65→0; Honors +0.25, AP/dual-credit/AP-prereq +0.5. Free periods excluded. The school’s calculator uses semester grades, which may differ from current Canvas grades. Letter labels are display-only; the handbook uses percentages and quality points.
         </p>
       </Card>
       <Card>
         <h3>{testingGrades ? 'Grades in this test' : 'Current Canvas grades'} by course</h3>
         {tracked.map((c) => {
-          const s = effectiveScore(c);
+          const s = scoreFor(c);
           return (
             <div key={c.id} className="row" style={{ justifyContent: 'space-between', margin: '6px 0' }}>
               <span style={{ width: 200 }}>{c.name}</span>

@@ -11,7 +11,6 @@ export interface Course {
   points_possible: number | null;
   tracked: boolean;
   level: CourseLevel;
-  score_override: number | null;
   categories: { name: string; weight: number }[];
 }
 
