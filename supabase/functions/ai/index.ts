@@ -64,7 +64,7 @@ Deno.serve(async (req) => {
       const [courseResult, assignmentResult, eventResult, snapshotResult] = await Promise.all([
         admin.from('courses').select('id,name,current_score,level,tracked,updated_at').eq('user_id', user.id).order('name'),
         admin.from('assignments').select('id,course_id,name,category,description_text,due_at,score,points_possible,submitted_at,missing,html_url,updated_at')
-          .eq('user_id', user.id).order('updated_at', { ascending: false }).limit(250),
+          .eq('user_id', user.id).order('updated_at', { ascending: false }).limit(1000),
         admin.from('activity_events').select('id,course_id,assignment_id,type,title,message,created_at')
           .eq('user_id', user.id).order('created_at', { ascending: false }).limit(40),
         admin.from('course_snapshots').select('course_id,score,created_at').eq('user_id', user.id)
@@ -76,6 +76,18 @@ Deno.serve(async (req) => {
       const courses = ((courseResult.data ?? []) as (ChatCourse & { tracked: boolean })[]).filter((course) => course.tracked);
       const names = new Map(courses.map((course) => [course.id, course.name]));
       const snapshots = (snapshotResult.data ?? []) as { course_id: string; score: number | null; created_at: string }[];
+      const beta = (user.user_metadata?.beta_store ?? {}) as Record<string, unknown>;
+      const courseGoals = beta.courseGoals && typeof beta.courseGoals === 'object' ? beta.courseGoals as Record<string, unknown> : {};
+      const reminders = Array.isArray(beta.reminders) ? beta.reminders.slice(0, 40) : [];
+      const allAssignments = ((assignmentResult.data ?? []) as Record<string, unknown>[]).filter((item) => names.has(String(item.course_id)));
+      const terms = question.toLocaleLowerCase().split(/[^\p{L}\p{N}]+/u).filter((term) => term.length >= 4);
+      const chosenAssignments = allAssignments.map((item) => {
+        const haystack = `${item.name ?? ''} ${names.get(String(item.course_id)) ?? ''} ${item.category ?? ''} ${String(item.description_text ?? '').slice(0, 300)}`.toLocaleLowerCase();
+        const relevance = terms.reduce((sum, term) => sum + (haystack.includes(term) ? 5 : 0), 0);
+        const due = item.due_at ? Date.parse(String(item.due_at)) : Infinity;
+        const upcoming = item.score == null && Number.isFinite(due) && due >= Date.now() - 86_400_000 && due < Date.now() + 14 * 86_400_000 ? 3 : 0;
+        return { item, rank: relevance + upcoming };
+      }).sort((a, b) => b.rank - a.rank).slice(0, 120).map(({ item }) => item);
       const facts: AiFact[] = [
         ...courses.map((course): AiFact => {
           const history = snapshots.filter((item) => item.course_id === course.id);
@@ -83,7 +95,7 @@ Deno.serve(async (req) => {
           return { id: `c:${course.id}`, url: `#/course/${course.id}`,
             text: `${course.name}; Canvas grade ${course.current_score ?? 'unavailable'}%; level ${course.level}; quality points ${qualityPoints(course.current_score, course.level) ?? 'unavailable'}; checked ${course.updated_at ?? 'unknown'}; earlier saved grade ${older?.score ?? 'unavailable'}% at ${older?.created_at ?? 'unknown'}` };
         }),
-        ...((assignmentResult.data ?? []) as Record<string, unknown>[]).filter((item) => names.has(String(item.course_id))).map((item): AiFact => ({
+        ...chosenAssignments.map((item): AiFact => ({
           id: `a:${item.id}`, url: typeof item.html_url === 'string' && item.html_url.startsWith('https://saintignatius.instructure.com/') ? item.html_url : '#/assignments?view=all',
           text: `${item.name} (${names.get(String(item.course_id))}); ${item.category ?? 'assignment'}; due ${item.due_at ?? 'not set'}; score ${item.score ?? 'ungraded'} of ${item.points_possible ?? 'unknown'}; submitted ${item.submitted_at ?? 'no'}; missing ${item.missing === true ? 'yes' : 'no'}; details ${String(item.description_text ?? '').slice(0, 280)}`,
         })),
@@ -91,6 +103,12 @@ Deno.serve(async (req) => {
           id: `e:${item.id}`, url: item.course_id ? `#/course/${item.course_id}` : '#/',
           text: `${item.title}; ${item.message}; ${item.type}; observed ${item.created_at}`,
         })),
+        ...Object.entries(courseGoals).filter(([id, target]) => names.has(id) && typeof target === 'number' && Number.isFinite(target)).map(([id, target]): AiFact => ({
+          id: `g:${id}`, url: `#/course/${id}`, text: `Personal goal for ${names.get(id)}: at least ${target}%`,
+        })),
+        ...(typeof beta.gpaGoal === 'number' && Number.isFinite(beta.gpaGoal) ? [{ id: 'g:gpa', url: '#/history', text: `Personal GPA goal: ${beta.gpaGoal}` }] : []),
+        ...reminders.flatMap((item: Record<string, unknown>): AiFact[] => typeof item.id === 'string' && typeof item.title === 'string' && typeof item.at === 'string'
+          ? [{ id: `r:${item.id}`, url: '#/planner', text: `Personal reminder: ${item.title.slice(0, 120)} at ${item.at}` }] : []),
       ];
       const gpa = gpaFacts(courses);
       await chargeAiRequest(admin, user.id, 'chat', true);
