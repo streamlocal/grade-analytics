@@ -14,9 +14,7 @@ import WhatIf from './pages/WhatIf';
 import Compare from './pages/Compare';
 import Settings from './pages/Settings';
 import AdminDashboard from './pages/AdminDashboard';
-import QuizTake from './pages/QuizTake';
 import Quizzes from './pages/Quizzes';
-import QuizAssignment from './pages/QuizAssignment';
 import { BetaContext, defaultBetaFlags, parseBetaFlags } from './beta';
 const Planner = lazy(() => import('./pages/Planner'));
 
@@ -194,9 +192,7 @@ function Shell() {
           <Route path="/history" element={<History />} />
           <Route path="/assignments" element={<Assignments />} />
           <Route path="/planner" element={betaFlags.planner ? <Suspense fallback={<main><p className="muted">Loading planner…</p></main>}><Planner /></Suspense> : <Navigate to="/settings" replace />} />
-          <Route path="/quiz/:courseId/:quizId" element={<QuizTake />} />
           <Route path="/quizzes" element={<Quizzes />} />
-          <Route path="/quiz-assignment/:courseId/:assignmentId" element={<QuizAssignment />} />
           <Route path="/what-if" element={<WhatIf />} />
           <Route path="/compare" element={<Compare />} />
           <Route path="/settings" element={<Settings onNeedsSetup={() => setNeedsSetup(true)} appearance={appearance}

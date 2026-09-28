@@ -13,21 +13,6 @@ async function authedInvoke(fn: string, body?: unknown) {
   return res.data;
 }
 
-async function quizInvoke(body: Record<string, unknown>) {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) throw new Error('Not signed in.');
-  const result = await supabase.functions.invoke('quiz', { body, headers: { Authorization: `Bearer ${session.access_token}` } });
-  if (result.error) {
-    const response = result.error.context;
-    if (response instanceof Response) {
-      const details = await response.clone().json().catch(() => null) as { error?: string } | null;
-      if (details?.error) throw new Error(details.error);
-    }
-    throw new Error(result.error.message || 'Canvas quiz request failed.');
-  }
-  return result.data;
-}
-
 export const api = {
   saveCredential: (baseUrl: string, token: string) =>
     authedInvoke('lms-connect', { base_url: baseUrl, token }),
@@ -50,6 +35,6 @@ export const api = {
   adminVerify: (password: string) => authedInvoke('admin-dashboard', { action: 'verify', password }),
   adminDashboard: (password: string) => authedInvoke('admin-dashboard', { action: 'dashboard', password }),
   adminAccount: (password: string, userId: string) => authedInvoke('admin-dashboard', { action: 'account', password, user_id: userId }),
-  quiz: quizInvoke,
+  listQuizzes: (courseId: string) => authedInvoke('quiz', { action: 'list', course_id: courseId }),
   plannerEvents: (start: string, end: string) => authedInvoke('planner-events', { start, end }),
 };
