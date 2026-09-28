@@ -4,6 +4,9 @@ import { Card, Empty, Skeleton } from '../components/ui';
 import { api } from '../services/api';
 import { fmtDateTime } from '../utils/format';
 import { overallGpa, qualityPoints } from '../utils/gpa';
+import { useAi } from '../hooks/useAi';
+
+type AiSettings = { global_enabled: boolean; local_enabled: boolean; key_configured: boolean; key_last4: string | null };
 
 interface AdminData {
   metrics: { users: number; courses: number; tracked_courses: number; assignments: number; failed_syncs: number; syncs_24h: number };
@@ -15,11 +18,16 @@ interface AccountView { account: { user_id: string; email: string; created_at: s
 
 export default function AdminDashboard({ password, onSignOut }: { password: string; onSignOut: () => void }) {
   const navigate = useNavigate();
+  const ai = useAi();
   const [data, setData] = useState<AdminData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [accountView, setAccountView] = useState<AccountView | null>(null);
   const [accountLoading, setAccountLoading] = useState(false);
+  const [aiSettings, setAiSettings] = useState<AiSettings | null>(null);
+  const [aiKeyDraft, setAiKeyDraft] = useState('');
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiMessage, setAiMessage] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -31,6 +39,36 @@ export default function AdminDashboard({ password, onSignOut }: { password: stri
     }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [password]);
+
+  useEffect(() => {
+    let active = true;
+    void api.adminAiSettings(password).then((result) => {
+      if (active) setAiSettings(result as AiSettings);
+    }).catch((reason) => { if (active) setAiMessage(reason instanceof Error ? reason.message : 'AI settings could not load.'); });
+    return () => { active = false; };
+  }, [password]);
+
+  async function saveAiKey(event: React.FormEvent) {
+    event.preventDefault();
+    setAiBusy(true); setAiMessage('Testing Gemini key…');
+    try {
+      setAiSettings(await api.adminSaveAiKey(password, aiKeyDraft) as AiSettings);
+      setAiKeyDraft('');
+      setAiMessage('Gemini key verified and saved.');
+      ai.reload();
+    } catch (reason) { setAiMessage(reason instanceof Error ? reason.message : 'Could not save the key.'); }
+    finally { setAiBusy(false); }
+  }
+
+  async function toggleAi(scope: 'global' | 'local', enabled: boolean) {
+    setAiBusy(true); setAiMessage('Saving AI setting…');
+    try {
+      setAiSettings(await api.adminToggleAi(password, scope, enabled) as AiSettings);
+      setAiMessage(enabled ? 'Enabled. Existing Canvas data is being prepared in the background.' : 'Disabled.');
+      ai.reload();
+    } catch (reason) { setAiMessage(reason instanceof Error ? reason.message : 'Could not change AI setting.'); }
+    finally { setAiBusy(false); }
+  }
 
   function leave() {
     onSignOut();
@@ -62,6 +100,22 @@ export default function AdminDashboard({ password, onSignOut }: { password: stri
         <button type="button" className="btn" onClick={leave}>Leave admin</button>
       </div>
       <div className="grid stats admin-stats">{cards.map(([label, value]) => <Card key={label as string}><div className="stat"><div className="l">{label}</div><div className="v">{value}</div></div></Card>)}</div>
+      <Card className="admin-ai-card">
+        <div className="section-heading"><div><p className="eyebrow">Feature controls</p><h2>AI integration</h2></div><span className={`status-pill ${aiSettings?.global_enabled ? 'success' : 'neutral'}`}>{aiSettings?.global_enabled ? 'On for everyone' : aiSettings?.local_enabled ? 'Local preview' : 'Off'}</span></div>
+        <p className="muted">Use Local to test on your account. Global makes Briefing, smart search, and Ask AI available to every account on both sites. Model: Gemini 3.5 Flash-Lite.</p>
+        <form className="admin-ai-key" onSubmit={(event) => void saveAiKey(event)}>
+          <label>Gemini API key <span className="muted">{aiSettings?.key_configured ? `Saved · ends ${aiSettings.key_last4}` : 'No key saved'}</span>
+            <input type="password" autoComplete="off" value={aiKeyDraft} onChange={(event) => setAiKeyDraft(event.target.value)} placeholder={aiSettings?.key_configured ? 'Paste a new key to replace it' : 'Paste your Gemini API key'} />
+          </label>
+          <button className="btn" type="submit" disabled={aiBusy || !aiKeyDraft.trim()}>Test & save key</button>
+        </form>
+        <div className="admin-ai-switches">
+          <label><span><strong>Local preview</strong><small>Only this administrator account</small></span><input type="checkbox" checked={Boolean(aiSettings?.local_enabled)} disabled={aiBusy || !aiSettings?.key_configured} onChange={(event) => void toggleAi('local', event.target.checked)} /></label>
+          <label><span><strong>Global access</strong><small>All signed-in accounts</small></span><input type="checkbox" checked={Boolean(aiSettings?.global_enabled)} disabled={aiBusy || !aiSettings?.key_configured} onChange={(event) => void toggleAi('global', event.target.checked)} /></label>
+        </div>
+        <p className="admin-ai-privacy">Gemini’s free tier may use submitted content to improve Google products. Switching on Global sends relevant school data for other accounts to Gemini after sync.</p>
+        {aiMessage && <p className="muted" role="status">{aiMessage}</p>}
+      </Card>
       <div className="admin-grid">
         <Card>
           <div className="section-heading"><h2>Accounts</h2><span className="muted">Latest first</span></div>

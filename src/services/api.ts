@@ -9,7 +9,14 @@ async function authedInvoke(fn: string, body?: unknown) {
     body: body ?? {},
     headers: { Authorization: `Bearer ${session.access_token}` },
   });
-  if (res.error) throw new Error(res.error.message || `Function ${fn} failed`);
+  if (res.error) {
+    const context = (res.error as { context?: unknown }).context;
+    if (context instanceof Response) {
+      const detail = await context.clone().json().catch(() => null);
+      if (detail && typeof detail.error === 'string') throw new Error(detail.error);
+    }
+    throw new Error(res.error.message || `Function ${fn} failed`);
+  }
   return res.data;
 }
 
@@ -35,6 +42,15 @@ export const api = {
   adminVerify: (password: string) => authedInvoke('admin-dashboard', { action: 'verify', password }),
   adminDashboard: (password: string) => authedInvoke('admin-dashboard', { action: 'dashboard', password }),
   adminAccount: (password: string, userId: string) => authedInvoke('admin-dashboard', { action: 'account', password, user_id: userId }),
+  adminAiSettings: (password: string) => authedInvoke('admin-dashboard', { action: 'ai-settings', password }),
+  adminSaveAiKey: (password: string, key: string) => authedInvoke('admin-dashboard', { action: 'ai-save-key', password, key }),
+  adminToggleAi: (password: string, scope: 'global' | 'local', enabled: boolean) => authedInvoke('admin-dashboard', { action: 'ai-toggle', password, scope, enabled }),
+  aiStatus: () => authedInvoke('ai', { action: 'status' }),
+  aiBriefing: () => authedInvoke('ai', { action: 'briefing' }),
+  aiRefresh: () => authedInvoke('ai', { action: 'refresh' }),
+  aiAsk: (courseId: string, question: string) => authedInvoke('ai', { action: 'ask', course_id: courseId, question }),
+  aiChat: (question: string, history: { role: 'user' | 'assistant'; text: string }[]) => authedInvoke('ai', { action: 'chat', question, history }),
+  aiPlan: (assignmentIds: string[], minutes: number) => authedInvoke('ai', { action: 'plan', assignment_ids: assignmentIds, minutes }),
   listQuizzes: (courseId: string) => authedInvoke('quiz', { action: 'list', course_id: courseId }),
   plannerEvents: (start: string, end: string) => authedInvoke('planner-events', { start, end }),
 };

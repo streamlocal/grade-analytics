@@ -2,6 +2,7 @@ import { useId, type ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../hooks/AuthContext';
 import { useBeta } from '../beta';
+import { useAi } from '../hooks/useAi';
 
 export function Card({ children, className = '', id }: { children: ReactNode; className?: string; id?: string }) {
   return <section id={id} className={`card ${className}`}>{children}</section>;
@@ -36,10 +37,13 @@ export function SyncHelp({ first = false }: { first?: boolean }) {
 export function TopBar({ onSync, syncing }: { onSync: () => void; syncing: boolean }) {
   const { user, signOut } = useAuth();
   const beta = useBeta();
+  const ai = useAi();
   const links = [
     { to: '/', label: 'Dashboard', end: true },
     { to: '/history', label: 'History', end: false },
     { to: '/assignments', label: 'Assignments', end: false },
+    ...(ai.enabled ? [{ to: '/briefing', label: 'Briefing', end: false }] : []),
+    ...(ai.enabled ? [{ to: '/chat', label: 'Ask AI', end: false }] : []),
     ...(beta.planner ? [{ to: '/planner', label: 'Planner', end: false }] : []),
     { to: '/compare', label: 'Compare', end: false },
     { to: '/what-if', label: 'What-if', end: false },

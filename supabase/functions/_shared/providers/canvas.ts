@@ -60,6 +60,11 @@ export const canvasProvider: LMSProvider = {
         lmsCourseId: String(lmsCourseId),
         name: a.name ?? `Assignment ${a.id}`,
         category: groupName[String(a.assignment_group_id)] ?? a.assignment_group?.name ?? null,
+        descriptionText: typeof a.description === 'string'
+          ? a.description.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ')
+            .replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&')
+            .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/&quot;/gi, '"')
+            .replace(/\s+/g, ' ').trim().slice(0, 3000) : null,
         dueAt: a.due_at ?? null,
         pointsPossible: a.points_possible ?? null,
         score,

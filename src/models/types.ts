@@ -32,6 +32,7 @@ export interface Assignment {
   lms_assignment_id: string;
   name: string;
   category: string | null;
+  description_text?: string | null;
   due_at: string | null;
   points_possible: number | null;
   score: number | null;

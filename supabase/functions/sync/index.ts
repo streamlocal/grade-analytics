@@ -6,6 +6,7 @@ import { adminClient, requireUser, decryptCredential, json } from '../_shared/au
 import { preflight } from '../_shared/cors.ts';
 import { getProvider } from '../_shared/providers/index.ts';
 import { detectCourseGradeChange, detectAssignmentChanges, type ChangeEvent, type NextAssign } from '../_shared/detect.ts';
+import { refreshAiForUser } from '../_shared/ai.ts';
 
 function activityRow(userId: string, event: ChangeEvent) {
   return {
@@ -215,6 +216,7 @@ Deno.serve(async (req) => {
         const { data: savedAssignments, error: assignmentError } = await admin.from('assignments').upsert(fetched.assignments.map((assignment) => ({
           user_id: userId, course_id: courseId, lms_assignment_id: assignment.lmsAssignmentId,
           name: assignment.name, category: assignment.category, due_at: assignment.dueAt,
+          description_text: assignment.descriptionText,
           points_possible: assignment.pointsPossible, score: assignment.score, grade: assignment.grade,
           missing: assignment.missing, late: assignment.late, excused: assignment.excused,
           submitted_at: assignment.submittedAt, html_url: assignment.htmlUrl,
@@ -246,6 +248,7 @@ Deno.serve(async (req) => {
       await admin.from('sync_runs').update({
         status: 'complete', stage: 'Complete', finished_at: new Date().toISOString(),
       }).eq('id', runId);
+      EdgeRuntime.waitUntil(refreshAiForUser(admin, userId).catch((error) => console.warn('AI update deferred:', error)));
       return json({ ok: true, kind: 'quick', courses: trackedLmsCourses.length, events: events.length });
     }
 
@@ -311,6 +314,7 @@ Deno.serve(async (req) => {
       const assignmentRows = lmsAssign.map((la) => ({
           user_id: userId, course_id: courseId, lms_assignment_id: la.lmsAssignmentId,
           name: la.name, category: la.category, due_at: la.dueAt,
+          description_text: la.descriptionText,
           points_possible: la.pointsPossible, score: la.score, grade: la.grade,
           missing: la.missing, late: la.late, excused: la.excused,
           submitted_at: la.submittedAt, html_url: la.htmlUrl,
@@ -383,6 +387,7 @@ Deno.serve(async (req) => {
         status: 'complete', stage: 'Complete', finished_at: new Date().toISOString(),
       }).eq('id', runId);
     }
+    EdgeRuntime.waitUntil(refreshAiForUser(admin, userId).catch((error) => console.warn('AI update deferred:', error)));
     return json({ ok: true, events: events.length, courses: lmsCourses.length, announcement_errors: announcementErrors });
   } catch (e) {
     // Never erase last good data on failure — just record the failed run.

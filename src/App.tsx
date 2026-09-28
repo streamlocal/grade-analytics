@@ -16,7 +16,10 @@ import Settings from './pages/Settings';
 import AdminDashboard from './pages/AdminDashboard';
 import Quizzes from './pages/Quizzes';
 import { BetaContext, defaultBetaFlags, parseBetaFlags } from './beta';
+import { AiProvider, useAi } from './hooks/useAi';
 const Planner = lazy(() => import('./pages/Planner'));
+const Briefing = lazy(() => import('./pages/Briefing'));
+const AiChat = lazy(() => import('./pages/AiChat'));
 
 export type Appearance = 'current' | 'old' | 'glass' | 'paper';
 let siteLoadSyncUser: string | null = null;
@@ -31,6 +34,11 @@ function savedAppearance(): Appearance {
 
 function Shell() {
   const { session, loading } = useAuth();
+  return <AiProvider userId={session?.user.id ?? null}><WorkspaceShell session={session} loading={loading} /></AiProvider>;
+}
+
+function WorkspaceShell({ session, loading }: { session: ReturnType<typeof useAuth>['session']; loading: boolean }) {
+  const ai = useAi();
   // Do not hold the whole app behind a cold backend check after sign-in.
   // We still confirm the connection before starting a Canvas sync, and redirect
   // accounts without one to setup as soon as that check completes.
@@ -192,6 +200,8 @@ function Shell() {
           <Route path="/history" element={<History />} />
           <Route path="/assignments" element={<Assignments />} />
           <Route path="/planner" element={betaFlags.planner ? <Suspense fallback={<main><p className="muted">Loading planner…</p></main>}><Planner /></Suspense> : <Navigate to="/settings" replace />} />
+          <Route path="/briefing" element={ai.enabled ? <Suspense fallback={<main><p className="muted">Loading briefing…</p></main>}><Briefing /></Suspense> : ai.loading ? <main><p className="muted">Checking availability…</p></main> : <Navigate to="/" replace />} />
+          <Route path="/chat" element={ai.enabled ? <Suspense fallback={<main><p className="muted">Loading chat…</p></main>}><AiChat /></Suspense> : ai.loading ? <main><p className="muted">Checking availability…</p></main> : <Navigate to="/" replace />} />
           <Route path="/quizzes" element={<Quizzes />} />
           <Route path="/what-if" element={<WhatIf />} />
           <Route path="/compare" element={<Compare />} />

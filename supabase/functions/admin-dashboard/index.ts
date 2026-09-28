@@ -1,7 +1,8 @@
 // Admin enrollment and dashboard. The keyboard phrase in the UI is only a
 // convenience to open this flow; all authorization happens here.
-import { adminClient, requireUser, json } from '../_shared/auth.ts';
+import { adminClient, requireUser, encryptToken, json } from '../_shared/auth.ts';
 import { preflight } from '../_shared/cors.ts';
+import { geminiJson, readAiSettings, refreshAiForUser } from '../_shared/ai.ts';
 
 const DEFAULT_ITERATIONS = 310_000;
 const enc = new TextEncoder();
@@ -155,6 +156,37 @@ Deno.serve(async (req) => {
       const userId = String(body.user_id ?? '');
       if (!userId) return json({ error: 'Account id is required.' }, 400);
       return json(await accountDashboard(admin, userId));
+    }
+    if (action === 'ai-settings' || action === 'ai-save-key' || action === 'ai-toggle') {
+      if (!(await verifyPassword(admin, user.id, password))) return json({ error: 'Administrator password is incorrect.' }, 401);
+      if (action === 'ai-save-key') {
+        const key = String(body.key ?? '').trim();
+        if (key.length < 20 || key.length > 500) return json({ error: 'Enter a valid Gemini API key.' }, 400);
+        const test = await geminiJson(key, 'Return exactly this JSON object: {"ok":true}', 50);
+        if (test.ok !== true) return json({ error: 'Gemini did not confirm this key. Try another key.' }, 400);
+        const encrypted = await encryptToken(key);
+        const { error } = await admin.from('ai_site_settings').update({
+          key_ciphertext: encrypted.ciphertext, key_iv: encrypted.iv,
+          key_last4: key.slice(-4), updated_at: new Date().toISOString(),
+        }).eq('id', true);
+        if (error) throw error;
+      }
+      if (action === 'ai-toggle') {
+        const scope = String(body.scope ?? '');
+        const enabled = body.enabled === true;
+        if (scope !== 'global' && scope !== 'local') return json({ error: 'Invalid AI switch.' }, 400);
+        const current = await readAiSettings(admin);
+        if (enabled && !current.key_ciphertext) return json({ error: 'Save a Gemini key first.' }, 400);
+        const update = scope === 'global'
+          ? { global_enabled: enabled, updated_at: new Date().toISOString() }
+          : { local_enabled: enabled, preview_user_id: user.id, updated_at: new Date().toISOString() };
+        const { error } = await admin.from('ai_site_settings').update(update).eq('id', true);
+        if (error) throw error;
+        if (enabled) EdgeRuntime.waitUntil(refreshAiForUser(admin, user.id).catch((cause) => console.warn('AI initial update deferred:', cause)));
+      }
+      const settings = await readAiSettings(admin);
+      return json({ global_enabled: settings.global_enabled, local_enabled: settings.local_enabled && settings.preview_user_id === user.id,
+        key_configured: Boolean(settings.key_ciphertext), key_last4: settings.key_last4 });
     }
     return json({ error: 'Unknown admin action.' }, 400);
   } catch (error) {

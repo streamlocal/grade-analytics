@@ -16,6 +16,7 @@ export interface NormAssignment {
   lmsCourseId: string;
   name: string;
   category: string | null;
+  descriptionText: string | null;
   dueAt: string | null;
   pointsPossible: number | null;
   score: number | null;

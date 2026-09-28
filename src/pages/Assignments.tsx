@@ -9,6 +9,9 @@ import { Link } from 'react-router-dom';
 import { useBeta } from '../beta';
 import { useBetaStore } from '../hooks/useBetaStore';
 import { previewAssignment } from '../utils/gradeImpact';
+import { useAi } from '../hooks/useAi';
+
+type AiTag = { assignment_id: string; topics: string[]; synonyms: string[]; task_type: string | null; chapter: string | null };
 
 type View = 'attention' | 'upcoming' | 'all' | 'graded';
 type Sort = 'due' | 'course' | 'name' | 'score' | 'graded' | 'priority';
@@ -84,6 +87,7 @@ function scoreLabel(a: Assignment): string {
 }
 
 export default function Assignments() {
+  const ai = useAi();
   const beta = useBeta();
   const betaStore = useBetaStore(beta.priorities);
   const { courses } = useCourses();
@@ -97,6 +101,22 @@ export default function Assignments() {
   const [message, setMessage] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [aiTags, setAiTags] = useState<Map<string, AiTag>>(new Map());
+
+  useEffect(() => {
+    if (!ai.enabled) { setAiTags(new Map()); return; }
+    let active = true;
+    let delayed: number | undefined;
+    const load = async () => {
+      const { data, error } = await supabase.from('ai_assignment_tags')
+        .select('assignment_id,topics,synonyms,task_type,chapter').limit(1000);
+      if (active && !error) setAiTags(new Map(((data ?? []) as AiTag[]).map((tag) => [tag.assignment_id, tag])));
+    };
+    const onSync = () => { void load(); delayed = window.setTimeout(() => { void load(); }, 8000); };
+    void load();
+    window.addEventListener('ga-sync-complete', onSync);
+    return () => { active = false; window.removeEventListener('ga-sync-complete', onSync); window.clearTimeout(delayed); };
+  }, [ai.enabled]);
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(Date.now()), 60_000);
@@ -166,15 +186,33 @@ export default function Assignments() {
     ? requestedView : counts.attention > 0 ? 'attention' : 'upcoming';
   const selectedSort: Sort = sort ?? (selectedView === 'graded' ? 'graded' : 'due');
 
+  function searchMatch(a: Assignment): { rank: number; tag: string | null } | null {
+    const query = search.trim().toLocaleLowerCase();
+    if (!query) return { rank: 0, tag: null };
+    const base = `${a.name} ${courseNames.get(a.course_id) ?? ''} ${a.category ?? ''} ${a.description_text ?? ''}`.toLocaleLowerCase();
+    if (a.name.toLocaleLowerCase().includes(query) || (courseNames.get(a.course_id) ?? '').toLocaleLowerCase().includes(query)) return { rank: 0, tag: null };
+    const terms = query.split(/\s+/).filter(Boolean);
+    if (terms.every((term) => base.includes(term))) return { rank: 1, tag: null };
+    const tag = aiTags.get(a.id);
+    if (!ai.enabled || !tag) return null;
+    const words = [...tag.topics, ...tag.synonyms, tag.task_type ?? '', tag.chapter ?? ''].filter(Boolean);
+    const combined = `${base} ${words.join(' ')}`.toLocaleLowerCase();
+    if (!terms.every((term) => combined.includes(term))) return null;
+    return { rank: 2, tag: words.find((word) => terms.some((term) => word.toLocaleLowerCase().includes(term) && !base.includes(term))) ?? words[0] ?? null };
+  }
+
   const rows = useMemo(() => assignments.filter((a) => {
     if (selectedView === 'attention' && !needsAttention(a, now)) return false;
     if (selectedView === 'upcoming' && !isUpcoming(a, now)) return false;
     if (selectedView === 'graded' && a.score == null) return false;
     if (courseId !== 'all' && a.course_id !== courseId) return false;
-    const query = search.trim().toLocaleLowerCase();
-    if (query && !`${a.name} ${courseNames.get(a.course_id) ?? ''} ${a.category ?? ''}`.toLocaleLowerCase().includes(query)) return false;
+    if (!searchMatch(a)) return false;
     return true;
   }).sort((a, b) => {
+    if (search.trim()) {
+      const rank = (searchMatch(a)?.rank ?? 3) - (searchMatch(b)?.rank ?? 3);
+      if (rank) return rank;
+    }
     if (selectedSort === 'priority') return priorityScore(b) - priorityScore(a) || compareDue(a, b);
     if (selectedSort === 'graded') {
       const aObserved = gradeTimes.get(a.id);
@@ -189,7 +227,7 @@ export default function Assignments() {
     if (selectedSort === 'course') return (courseNames.get(a.course_id) ?? '').localeCompare(courseNames.get(b.course_id) ?? '') || compareDue(a, b);
     if (selectedSort === 'score') return (b.score == null ? -1 : b.points_possible ? b.score / b.points_possible : b.score) - (a.score == null ? -1 : a.points_possible ? a.score / a.points_possible : a.score);
     return compareDue(a, b);
-  }), [assignments, selectedView, courseId, search, selectedSort, courseNames, now, gradeTimes, betaStore.data]);
+  }), [assignments, selectedView, courseId, search, selectedSort, courseNames, now, gradeTimes, betaStore.data, ai.enabled, aiTags]);
 
   const groups = useMemo(() => {
     if (selectedView === 'graded' && selectedSort === 'graded') {
@@ -272,7 +310,7 @@ export default function Assignments() {
 
       <div className="assignment-controls">
         <label className="assignment-search">Search assignments
-          <input ref={searchRef} type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Name, class, or category" />
+          <input ref={searchRef} type="search" value={search} onChange={(e) => { setSearch(e.target.value); if (e.target.value.trim() && selectedView !== 'all') setSearchParams({ view: 'all' }, { replace: true }); }} placeholder={ai.enabled ? 'Title, class, topic, or description' : 'Name, class, or category'} />
         </label>
         <label>Course
           <select value={courseId} onChange={(e) => setCourseId(e.target.value)}>
@@ -319,6 +357,7 @@ export default function Assignments() {
                     <span className={`status-pill ${status.tone}`}>{status.label}</span>
                   </div>
                   <p className="assignment-course">{courseNames.get(a.course_id) ?? 'Unknown course'}{a.category ? ` · ${a.category}` : ''}</p>
+                  {search && searchMatch(a)?.rank === 2 && searchMatch(a)?.tag && <p className="assignment-ai-match">Matched by topic: {searchMatch(a)?.tag}</p>}
                   <div className="assignment-meta">
                     <span><strong>Due</strong> {dueLabel(a)}</span>
                     <span><strong>Score</strong> {scoreLabel(a)}</span>
