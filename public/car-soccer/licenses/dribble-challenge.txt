@@ -1,0 +1,12 @@
+Dribbling Challenge 1 Remastered by Lethamyr
+https://lethamyr.com/maps/139
+
+Experimental browser adaptation for local evaluation, requested by the project
+owner on September 13, 2026. Original map rights remain with their owners;
+Car Soccer does not grant an open-source licence to these assets.
+
+Original geometry, placements, stage spawns and decoded trigger shapes are
+adapted to browser rendering and physics. External game materials are replaced
+with reconstructed finishes and original generated textures. Authored movement
+tracks and attached reset volumes are translated into browser animation data;
+Unreal scripts and effects are not executed.

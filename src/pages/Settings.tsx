@@ -99,14 +99,41 @@ export default function Settings({ onNeedsSetup, appearance, onAppearanceChange,
   const [adminMessage, setAdminMessage] = useState('');
   const [adminBusy, setAdminBusy] = useState(false);
   const [adminStatus, setAdminStatus] = useState<{ is_admin: boolean; can_enroll: boolean } | null>(null);
+  const [gameOpen, setGameOpen] = useState(false);
+  const gameFrame = useRef<HTMLDivElement>(null);
+  const [gameFullscreen, setGameFullscreen] = useState(false);
+
+  useEffect(() => {
+    const onFullscreenChange = () => setGameFullscreen(document.fullscreenElement === gameFrame.current);
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, []);
+
+  async function toggleGameFullscreen() {
+    try {
+      if (document.fullscreenElement === gameFrame.current) await document.exitFullscreen();
+      else await gameFrame.current?.requestFullscreen();
+    } catch { setMsg('Fullscreen is unavailable in this browser.'); }
+  }
+
+  async function closeGame() {
+    if (document.fullscreenElement === gameFrame.current) await document.exitFullscreen();
+    setGameOpen(false);
+  }
 
   useEffect(() => {
     let sequence = '';
     let timer: number | undefined;
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
-      if (!target || target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
+      if (!target || target.isContentEditable || target.closest('input[type="password"]') || event.metaKey || event.ctrlKey || event.altKey || event.key.length !== 1) return;
       sequence = (sequence + event.key.toLowerCase()).slice(-8);
+      if (sequence.endsWith('game')) {
+        sequence = '';
+        setGameOpen(true);
+        return;
+      }
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
       if (sequence.endsWith('admin121')) {
         sequence = '';
         window.clearTimeout(timer);
@@ -236,6 +263,18 @@ export default function Settings({ onNeedsSetup, appearance, onAppearanceChange,
 
   return (
     <main className="settings-page">
+      {gameOpen && <div className="game-overlay" role="dialog" aria-modal="true" aria-label="Car Soccer">
+        <div className="game-frame" ref={gameFrame}>
+          <div className="game-toolbar">
+            <strong>Car Soccer</strong>
+            <div>
+              <button type="button" className="btn" onClick={() => void toggleGameFullscreen()}>{gameFullscreen ? 'Exit fullscreen' : 'Fullscreen'}</button>
+              <button type="button" className="btn" onClick={() => void closeGame()}>Close</button>
+            </div>
+          </div>
+          <iframe title="Car Soccer game" src={`${import.meta.env.BASE_URL}car-soccer/`} allow="fullscreen; gamepad" allowFullScreen />
+        </div>
+      </div>}
       <div className="page-heading">
         <div><p className="eyebrow">Your workspace</p><h1>Settings</h1><p className="page-subtitle">Manage Canvas, your data, and this device.</p></div>
       </div>

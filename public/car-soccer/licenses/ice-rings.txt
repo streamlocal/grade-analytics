@@ -1,0 +1,10 @@
+Ice Rings by Lethamyr
+https://lethamyr.com/maps/34
+
+Included in Car Soccer with the creator's permission, supplied by the project
+owner on September 12, 2026: "You can put it in the game, I don't mind".
+This permission is for this game; the map is not released under an open-source
+licence by Car Soccer.
+
+Browser adaptation: reconstructed materials, collision and stage reset logic.
+Nonfunctional difficulty labels and stopwatch models have been removed.
