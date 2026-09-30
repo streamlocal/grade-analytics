@@ -100,24 +100,8 @@ export default function Settings({ onNeedsSetup, appearance, onAppearanceChange,
   const [adminBusy, setAdminBusy] = useState(false);
   const [adminStatus, setAdminStatus] = useState<{ is_admin: boolean; can_enroll: boolean } | null>(null);
   const [gameOpen, setGameOpen] = useState(false);
-  const gameFrame = useRef<HTMLDivElement>(null);
-  const [gameFullscreen, setGameFullscreen] = useState(false);
 
-  useEffect(() => {
-    const onFullscreenChange = () => setGameFullscreen(document.fullscreenElement === gameFrame.current);
-    document.addEventListener('fullscreenchange', onFullscreenChange);
-    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
-  }, []);
-
-  async function toggleGameFullscreen() {
-    try {
-      if (document.fullscreenElement === gameFrame.current) await document.exitFullscreen();
-      else await gameFrame.current?.requestFullscreen();
-    } catch { setMsg('Fullscreen is unavailable in this browser.'); }
-  }
-
-  async function closeGame() {
-    if (document.fullscreenElement === gameFrame.current) await document.exitFullscreen();
+  function closeGame() {
     setGameOpen(false);
   }
 
@@ -264,12 +248,11 @@ export default function Settings({ onNeedsSetup, appearance, onAppearanceChange,
   return (
     <main className="settings-page">
       {gameOpen && <div className="game-overlay" role="dialog" aria-modal="true" aria-label="Car Soccer">
-        <div className="game-frame" ref={gameFrame}>
+        <div className="game-frame">
           <div className="game-toolbar">
             <strong>Car Soccer</strong>
             <div>
-              <button type="button" className="btn" onClick={() => void toggleGameFullscreen()}>{gameFullscreen ? 'Exit fullscreen' : 'Fullscreen'}</button>
-              <button type="button" className="btn" onClick={() => void closeGame()}>Close</button>
+              <button type="button" className="btn" onClick={closeGame}>Close</button>
             </div>
           </div>
           <iframe title="Car Soccer game" src={`${import.meta.env.BASE_URL}car-soccer/`} allow="fullscreen; gamepad" allowFullScreen />

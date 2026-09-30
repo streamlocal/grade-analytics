@@ -338,7 +338,6 @@ table.data tbody tr:hover { background: color-mix(in srgb,var(--accent) 4%,var(-
 .settings-page .page-heading { margin-bottom: 25px; }
 .game-overlay { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px; background: rgba(4, 12, 25, .88); }
 .game-frame { display: flex; flex-direction: column; width: min(1280px, 100%); height: min(850px, 100%); overflow: hidden; background: #080f1c; border: 1px solid #40506b; border-radius: 12px; box-shadow: 0 20px 80px rgba(0, 0, 0, .5); }
-.game-frame:fullscreen { width: 100vw; height: 100vh; border: 0; border-radius: 0; }
 .game-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; color: #fff; background: #111d30; }
 .game-toolbar > div { display: flex; gap: 8px; }
 .game-toolbar .btn { color: #fff; background: #263854; border-color: #536989; }
