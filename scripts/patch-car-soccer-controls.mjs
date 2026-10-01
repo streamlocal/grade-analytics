@@ -29,5 +29,8 @@ replaceOnce(
   'function Ju(){return Nc.load()}function Xu(n){Nc.save(n)}',
   'function Ju(){const n=Nc.load(),t=Ic(),e={boost:[{kind:"mouse",button:0}],jump:[{kind:"mouse",button:2}],powerslide:[{kind:"key",code:"ShiftLeft"},{kind:"key",code:"ShiftRight"}],airRoll:[{kind:"key",code:"ShiftLeft"},{kind:"key",code:"ShiftRight"}],ballCam:[{kind:"key",code:"Space"}],saveClip:[{kind:"key",code:"KeyC"}]};let r=!1;for(const [i,o]of Object.entries(e))JSON.stringify(n.keyboard[i])===JSON.stringify(o)&&(n.keyboard[i]=t[i],r=!0);JSON.stringify(n.pad.saveClip)===JSON.stringify([{kind:"padButton",index:10}])&&(n.pad.saveClip=[],r=!0);return r&&Nc.save(n),n}function Xu(n){Nc.save(n)}',
 );
+// An invite must return to the game subdirectory on both hosting providers.
+replaceOnce('`${location.origin}/#room=${M.id}`', '`${location.origin}${location.pathname}#room=${M.id}`');
+replaceOnce('`${location.origin}/#room=${M}`', '`${location.origin}${location.pathname}#room=${M}`');
 
 writeFileSync(path, game);

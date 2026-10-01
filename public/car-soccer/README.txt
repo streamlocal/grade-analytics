@@ -12,5 +12,8 @@ The two large custom-map JSON files are split into 4 MiB pieces and assembled
 by the main bundle when those maps are selected. This keeps each hosted file
 below the Site source repository's object limit.
 
-Local arena play is included. Online rooms and other server features require
-the original game's APIs and may be unavailable on this static host.
+Local arena play is included. Private 1v1 rooms use the same bundled game's
+WebRTC multiplayer engine. Grade Analytics supplies room signaling with
+Supabase Realtime so both hosted copies can play together. Public room
+listing, larger team sizes, and the original game's other server features
+remain unavailable on this static host.
