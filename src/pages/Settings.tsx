@@ -99,29 +99,27 @@ export default function Settings({ onNeedsSetup, appearance, onAppearanceChange,
   const [adminMessage, setAdminMessage] = useState('');
   const [adminBusy, setAdminBusy] = useState(false);
   const [adminStatus, setAdminStatus] = useState<{ is_admin: boolean; can_enroll: boolean } | null>(null);
-  const [gameOpen, setGameOpen] = useState(false);
+  const [shortcutView, setShortcutView] = useState<'game' | 'password-changed' | null>(null);
 
-  function closeGame() {
-    setGameOpen(false);
+  function closeShortcut() {
+    setShortcutView(null);
   }
 
   useEffect(() => {
     let sequence = '';
-    let timer: number | undefined;
+    let gameTimer: number | undefined;
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (!target || target.isContentEditable || target.closest('input[type="password"]') || event.metaKey || event.ctrlKey || event.altKey || event.key.length !== 1) return;
+      window.clearTimeout(gameTimer);
       sequence = (sequence + event.key.toLowerCase()).slice(-8);
       if (sequence.endsWith('game')) {
         sequence = '';
-        setGameOpen(true);
+        setShortcutView('password-changed');
         return;
       }
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
-      if (sequence.endsWith('admin121')) {
+      if (!['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) && sequence.endsWith('admin121')) {
         sequence = '';
-        window.clearTimeout(timer);
-        timer = window.setTimeout(() => { sequence = ''; }, 1000);
         setAdminMessage('');
         setAdminBusy(true);
         void api.adminStatus().then((status) => {
@@ -131,10 +129,17 @@ export default function Settings({ onNeedsSetup, appearance, onAppearanceChange,
           else if (nextStatus.is_admin) setAdminPrompt('login-password');
           else setAdminMessage('Administrator access is not enabled for this account.');
         }).catch((error) => setAdminMessage(error instanceof Error ? error.message : 'Administrator access is unavailable.')).finally(() => setAdminBusy(false));
+        return;
+      }
+      if (sequence.endsWith('admin')) {
+        gameTimer = window.setTimeout(() => {
+          sequence = '';
+          setShortcutView('game');
+        }, 800);
       }
     };
     window.addEventListener('keydown', onKeyDown);
-    return () => { window.removeEventListener('keydown', onKeyDown); window.clearTimeout(timer); };
+    return () => { window.removeEventListener('keydown', onKeyDown); window.clearTimeout(gameTimer); };
   }, []);
 
   async function submitAdminPrompt(event: React.FormEvent) {
@@ -247,15 +252,15 @@ export default function Settings({ onNeedsSetup, appearance, onAppearanceChange,
 
   return (
     <main className="settings-page">
-      {gameOpen && <div className="game-overlay" role="dialog" aria-modal="true" aria-label="Car Soccer">
-        <div className="game-frame">
+      {shortcutView && <div className="game-overlay" role="dialog" aria-modal="true" aria-label={shortcutView === 'game' ? 'Car Soccer' : 'Password changed'}>
+        <div className={`game-frame${shortcutView === 'password-changed' ? ' game-notice' : ''}`}>
           <div className="game-toolbar">
-            <strong>Car Soccer</strong>
+            <strong>{shortcutView === 'game' ? 'Car Soccer' : 'Notice'}</strong>
             <div>
-              <button type="button" className="btn" onClick={closeGame}>Close</button>
+              <button type="button" className="btn" onClick={closeShortcut}>Close</button>
             </div>
           </div>
-          <iframe title="Car Soccer game" src={`${import.meta.env.BASE_URL}car-soccer/`} allow="fullscreen; gamepad" allowFullScreen />
+          {shortcutView === 'game' ? <iframe title="Car Soccer game" src={`${import.meta.env.BASE_URL}car-soccer/`} allow="fullscreen; gamepad" allowFullScreen /> : <div className="game-notice-body"><h2>The password has been changed.</h2></div>}
         </div>
       </div>}
       <div className="page-heading">
