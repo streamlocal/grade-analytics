@@ -19,10 +19,10 @@ function activityRow(userId: string, event: ChangeEvent) {
 async function resolveUser(req: Request, body: Record<string, unknown>) {
   const auth = req.headers.get('Authorization')?.replace('Bearer ', '') ?? '';
   if (body.for_user && auth === Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')) {
-    return { userId: String(body.for_user), admin: adminClient() };
+    return { userId: String(body.for_user), admin: adminClient(), serviceRole: true };
   }
   const { user, admin } = await requireUser(req);
-  return { userId: user.id, admin };
+  return { userId: user.id, admin, serviceRole: false };
 }
 
 // Best-effort initial course level from the Canvas course name.
@@ -69,9 +69,9 @@ Deno.serve(async (req) => {
   if (pre) return pre;
   if (req.method !== 'POST') return json({ error: 'POST only' }, 405);
   const body = await req.json().catch(() => ({}));
-  let userId, admin;
+  let userId, admin, serviceRole;
   try {
-    ({ userId, admin } = await resolveUser(req, body));
+    ({ userId, admin, serviceRole } = await resolveUser(req, body));
   } catch (e) {
     return e as Response;
   }
@@ -137,8 +137,20 @@ Deno.serve(async (req) => {
     return json({ error: 'A sync is already running for this account.' }, 409);
   }
   const runId = (run as { id: string }).id;
+  // Acquire the per-user lock before acknowledging a scheduled sync. The
+  // result is recorded in sync_runs even after the HTTP request has returned.
+  if (serviceRole && mode === 'sync' && body.background === true) {
+    EdgeRuntime.waitUntil(runSync(admin, userId, runId, mode).then((response) => {
+      if (!response.ok) console.error('Scheduled sync failed', runId, response.status);
+    }).catch((error) => console.error('Scheduled sync failed', runId, error)));
+    return json({ ok: true, accepted: true, run_id: runId }, 202);
+  }
+  return runSync(admin, userId, runId, mode);
+});
+
+async function runSync(admin: ReturnType<typeof adminClient>, userId: string, runId: string, mode: string) {
   const setStage = (stage: string) =>
-    runId ? admin.from('sync_runs').update({ stage }).eq('id', runId) : Promise.resolve();
+    admin.from('sync_runs').update({ stage }).eq('id', runId);
 
   try {
     const { cred, token } = await decryptCredential(admin, userId);
@@ -400,4 +412,4 @@ Deno.serve(async (req) => {
     }
     return json({ error: e instanceof Error ? e.message : 'Sync failed' }, 502);
   }
-});
+}

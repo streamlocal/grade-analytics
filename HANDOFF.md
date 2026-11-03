@@ -137,6 +137,22 @@ Normalized into `NormCourse` / `NormAssignment` / `NormCategory` so other LMS pr
 
 - `deploy-pages.yml` — on push to `main`: npm ci → test → build (with `VITE_SUPABASE_*` secrets) → deploy Pages.
 - `daily-sync.yml` — daily 12:00 UTC + `workflow_dispatch` → POST `cron-trigger` with `CRON_SECRET`.
+  Temporary gateway errors are retried up to three times with bounded request/job timeouts.
+  `cron-trigger` requests service-role background syncs: `sync` acquires the per-user
+  lock, returns HTTP 202, and keeps the work alive with `EdgeRuntime.waitUntil`.
+  HTTP 409 means an account already has an active sync; other dispatch failures
+  make the trigger return HTTP 502. A green workflow confirms dispatch only;
+  check `sync_runs` for each account's actual completion or failure.
+
+When deploying changes to scheduled sync, deploy **`sync` before `cron-trigger`**:
+
+```bash
+supabase functions deploy sync --project-ref htyloqknzbovojsijamf
+supabase functions deploy cron-trigger --project-ref htyloqknzbovojsijamf --no-verify-jwt
+```
+
+Background tasks still obey Supabase's worker wall-clock/CPU limits. The existing
+15-minute stale-lock recovery applies if the platform terminates a worker.
 
 ## Secrets — where they live (values NOT in this repo)
 

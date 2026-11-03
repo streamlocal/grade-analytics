@@ -11,11 +11,20 @@ on:
 jobs:
   trigger:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Invoke cron-trigger Edge Function
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
         run: |
-          curl -fsS -X POST \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+          : "${CRON_SECRET:?Missing CRON_SECRET secret}"
+          : "${SUPABASE_URL:?Missing SUPABASE_URL secret}"
+          curl --fail --silent --show-error \
+            --connect-timeout 10 --max-time 180 \
+            --retry 3 --retry-delay 10 --retry-max-time 600 \
+            -X POST \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
             -H "Content-Type: application/json" \
             -d '{}' \
-            "${{ secrets.SUPABASE_URL }}/functions/v1/cron-trigger"
+            "${SUPABASE_URL%/}/functions/v1/cron-trigger"
