@@ -19,10 +19,10 @@ function activityRow(userId: string, event: ChangeEvent) {
 async function resolveUser(req: Request, body: Record<string, unknown>) {
   const auth = req.headers.get('Authorization')?.replace('Bearer ', '') ?? '';
   if (body.for_user && auth === Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')) {
-    return { userId: String(body.for_user), admin: adminClient() };
+    return { userId: String(body.for_user), admin: adminClient(), serviceRole: true };
   }
   const { user, admin } = await requireUser(req);
-  return { userId: user.id, admin };
+  return { userId: user.id, admin, serviceRole: false };
 }
 
 // Best-effort initial course level from the Canvas course name.
@@ -69,9 +69,9 @@ Deno.serve(async (req) => {
   if (pre) return pre;
   if (req.method !== 'POST') return json({ error: 'POST only' }, 405);
   const body = await req.json().catch(() => ({}));
-  let userId, admin;
+  let userId, admin, serviceRole;
   try {
-    ({ userId, admin } = await resolveUser(req, body));
+    ({ userId, admin, serviceRole } = await resolveUser(req, body));
   } catch (e) {
     return e as Response;
   }
@@ -116,8 +116,13 @@ Deno.serve(async (req) => {
   // ---- quick or full sync (locked: one running job per user) ----
   // One sync at a time per user. A crashed/timed-out run older than 15 minutes
   // is reclaimed so a dead lock can never block future syncs permanently.
-  const { data: existing } = await admin.from('sync_runs').select('id,started_at')
-    .eq('user_id', userId).eq('status', 'running').limit(1);
+  // The partial unique index remains the lock for every mode. Quick refreshes
+  // try the insert directly and only read the existing lock if they collide;
+  // this removes one database round trip from the common page-load path.
+  const { data: existing } = mode === 'quick'
+    ? { data: [] }
+    : await admin.from('sync_runs').select('id,started_at')
+      .eq('user_id', userId).eq('status', 'running').limit(1);
   if (existing?.length) {
     const row = existing[0] as { id: string; started_at: string };
     const ageMs = Date.now() - new Date(row.started_at).getTime();
@@ -130,25 +135,54 @@ Deno.serve(async (req) => {
     }).eq('id', row.id);
   }
 
-  const { data: run, error: runErr } = await admin.from('sync_runs')
+  let { data: run, error: runErr } = await admin.from('sync_runs')
     .insert({ user_id: userId, status: 'running', stage: 'Connecting' }).select('id').single();
   if (runErr || !run) {
-    // Lost a race for the lock — treat as "already running".
-    return json({ error: 'A sync is already running for this account.' }, 409);
+    // Resolve a quick-sync lock collision only on the uncommon overlapping-load
+    // path, reclaiming a stale row exactly as the regular path does.
+    if (mode === 'quick') {
+      const { data: running } = await admin.from('sync_runs').select('id,started_at')
+        .eq('user_id', userId).eq('status', 'running').limit(1);
+      const row = running?.[0] as { id: string; started_at: string } | undefined;
+      if (row && Date.now() - new Date(row.started_at).getTime() >= 15 * 60_000) {
+        await admin.from('sync_runs').update({
+          status: 'failed', stage: 'Timed out', error: 'Stale lock reclaimed',
+          finished_at: new Date().toISOString(),
+        }).eq('id', row.id);
+        ({ data: run, error: runErr } = await admin.from('sync_runs')
+          .insert({ user_id: userId, status: 'running', stage: 'Connecting' }).select('id').single());
+      }
+    }
+    if (runErr?.code === '23505') return json({ error: 'A sync is already running for this account.' }, 409);
+    if (runErr || !run) {
+      console.error('Could not start sync run', runErr?.code);
+      return json({ error: 'Could not start sync run' }, 502);
+    }
   }
   const runId = (run as { id: string }).id;
+  if (serviceRole && mode === 'sync' && body.background === true) {
+    const task = runSync(admin, userId, runId, mode).then((response) => {
+      if (!response.ok) console.error('Scheduled sync failed', runId, response.status);
+    });
+    EdgeRuntime.waitUntil(task.catch((error) => console.error('Scheduled sync failed', runId, error)));
+    return json({ ok: true, accepted: true, run_id: runId }, 202);
+  }
+  return runSync(admin, userId, runId, mode);
+});
+
+async function runSync(admin: ReturnType<typeof adminClient>, userId: string, runId: string, mode: string) {
   const setStage = (stage: string) =>
     runId ? admin.from('sync_runs').update({ stage }).eq('id', runId) : Promise.resolve();
 
   try {
-    const { cred, token } = await decryptCredential(admin, userId);
+    const [{ cred, token }, previousCoursesResult] = await Promise.all([
+      decryptCredential(admin, userId),
+      admin.from('courses').select('*').eq('user_id', userId),
+    ]);
     const provider = getProvider(cred.provider);
 
-    await setStage('Fetching courses');
-    const lmsCourses = await provider.fetchCourses(cred.base_url, token);
-
     // Previous state for change detection and the existing tracked-course set.
-    const { data: prevCourses } = await admin.from('courses').select('*').eq('user_id', userId);
+    const prevCourses = previousCoursesResult.data;
     const prevByLms = new Map(((prevCourses ?? []) as Record<string, unknown>[]).map((c) => [
       (c as { lms_course_id: string }).lms_course_id, c as {
         id: string; current_score: number | null; name: string; tracked: boolean;
@@ -159,99 +193,161 @@ Deno.serve(async (req) => {
     // Save snapshots and detected changes from those reads so a later full
     // sync cannot lose a change that the reload already applied.
     if (mode === 'quick') {
+      const quickStartedAt = performance.now();
+      const trackedRows = ((prevCourses ?? []) as Record<string, unknown>[])
+        .filter((course) => course.tracked !== false)
+        .map((course) => ({
+          id: String(course.id), lmsCourseId: String(course.lms_course_id),
+          name: String(course.name ?? 'Course'),
+        }));
+      // The course-grade request and per-course assignment reads do not depend
+      // on each other. Start both immediately so the reload pays for the slower
+      // of the two paths instead of their combined duration.
+      const lmsCoursesPromise = provider.fetchCourses(cred.base_url, token);
+      const fetchedByCoursePromise = mapWithConcurrency(trackedRows, 6, async (course) => {
+        try {
+          return { course, fetched: await provider.fetchAssignments(cred.base_url, token, course.lmsCourseId, false) };
+        } catch {
+          return { course, fetched: null };
+        }
+      });
+      const canvasStartedAt = performance.now();
+      const [lmsCourses, assignmentResults] = await Promise.all([lmsCoursesPromise, fetchedByCoursePromise]);
+      const canvasDurationMs = performance.now() - canvasStartedAt;
+      const persistenceStartedAt = performance.now();
+      const liveCourseIds = new Set(lmsCourses.map((course) => course.lmsCourseId));
+      const fetchedByCourse = assignmentResults.filter(({ course }) => liveCourseIds.has(course.lmsCourseId));
       const trackedLmsCourses = lmsCourses.filter((course) => prevByLms.get(course.lmsCourseId)?.tracked !== false && prevByLms.has(course.lmsCourseId));
+      const currentCourseByLms = new Map(lmsCourses.map((course) => [course.lmsCourseId, course]));
       const events: ReturnType<typeof activityRow>[] = [];
-      await setStage('Updating current grades');
       if (trackedLmsCourses.length) {
         for (const course of trackedLmsCourses) {
           const prior = prevByLms.get(course.lmsCourseId);
           const change = detectCourseGradeChange(course.name, prior!.id, prior!.current_score, course.currentScore);
           if (change) events.push(activityRow(userId, change));
         }
-        const { error: courseError } = await admin.from('courses').upsert(trackedLmsCourses.map((course) => ({
+        const [{ error: courseError }, { error: snapshotError }] = await Promise.all([
+          admin.from('courses').upsert(trackedLmsCourses.map((course) => ({
           user_id: userId, lms_course_id: course.lmsCourseId, name: course.name,
           course_code: course.courseCode, teacher_names: course.teachers,
           current_score: course.currentScore, current_grade: course.currentGrade,
           grade_checked_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
-        })), { onConflict: 'user_id,lms_course_id' });
+          })), { onConflict: 'user_id,lms_course_id' }),
+          admin.from('course_snapshots').insert(trackedLmsCourses.map((course) => ({
+            user_id: userId, course_id: prevByLms.get(course.lmsCourseId)!.id,
+            score: course.currentScore, grade: course.currentGrade,
+          }))),
+        ]);
         if (courseError) throw courseError;
-        const { error: snapshotError } = await admin.from('course_snapshots').insert(trackedLmsCourses.map((course) => ({
-          user_id: userId, course_id: prevByLms.get(course.lmsCourseId)!.id,
-          score: course.currentScore, grade: course.currentGrade,
-        })));
         if (snapshotError) throw snapshotError;
       }
 
-      await setStage('Fetching assignments');
-      const fetchedByCourse = await mapWithConcurrency(trackedLmsCourses, 3, async (course) => {
-        try {
-          return { course, fetched: await provider.fetchAssignments(cred.base_url, token, course.lmsCourseId) };
-        } catch {
-          return { course, fetched: null };
-        }
-      });
+      const trackedDbIds = trackedRows.map((course) => course.id);
+      const goodFetches = fetchedByCourse.filter((row) => row.fetched);
+      const checkedAt = new Date().toISOString();
+      const failedFetches = fetchedByCourse.filter((row) => !row.fetched);
+      const [checkedResult, failedResult, previousResult] = await Promise.all([
+        goodFetches.length
+          ? admin.from('courses').update({ assignments_checked_at: checkedAt, assignments_check_error: null })
+            .in('id', goodFetches.map(({ course }) => course.id))
+          : Promise.resolve({ error: null }),
+        failedFetches.length
+          ? admin.from('courses').update({ assignments_check_error: 'Canvas assignment check failed; saved assignments kept.' })
+            .in('id', failedFetches.map(({ course }) => course.id))
+          : Promise.resolve({ error: null }),
+        trackedDbIds.length
+          ? admin.from('assignments')
+          .select('id,course_id,lms_assignment_id,name,category,score,points_possible,missing,due_at,submitted_at')
+            .in('course_id', trackedDbIds)
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+      const { data: previousAssignments, error: previousError } = previousResult;
+      if (checkedResult.error) throw checkedResult.error;
+      if (failedResult.error) throw failedResult.error;
+      if (previousError) throw previousError;
+      const previousByKey = new Map(((previousAssignments ?? []) as {
+        id: string; course_id: string; lms_assignment_id: string; name: string; category: string | null;
+        score: number | null; points_possible: number | null; missing: boolean;
+        due_at: string | null; submitted_at: string | null;
+      }[]).map((assignment) => [`${assignment.course_id}:${assignment.lms_assignment_id}`, {
+        id: assignment.id, name: assignment.name, category: assignment.category, score: assignment.score,
+        points: assignment.points_possible, missing: assignment.missing,
+        dueAt: assignment.due_at, submittedAt: assignment.submitted_at,
+      }]));
 
-      await setStage('Saving assignments');
-      await Promise.all(fetchedByCourse.map(async ({ course, fetched }) => {
-        const courseId = prevByLms.get(course.lmsCourseId)?.id;
-        if (!courseId) return;
-        if (!fetched) {
-          await admin.from('courses').update({ assignments_check_error: 'Canvas assignment check failed; saved assignments kept.' }).eq('id', courseId);
-          return;
-        }
-        await admin.from('courses').update({ assignments_checked_at: new Date().toISOString(), assignments_check_error: null }).eq('id', courseId);
-        const { data: previousAssignments, error: previousError } = await admin.from('assignments')
-          .select('id,lms_assignment_id,name,score,points_possible,missing,due_at,submitted_at').eq('course_id', courseId);
-        if (previousError) throw previousError;
-        const previous = new Map(((previousAssignments ?? []) as {
-          id: string; lms_assignment_id: string; name: string; score: number | null;
-          points_possible: number | null; missing: boolean; due_at: string | null; submitted_at: string | null;
-        }[]).map((assignment) => [`${courseId}:${assignment.lms_assignment_id}`, {
-          id: assignment.id, name: assignment.name, score: assignment.score,
-          points: assignment.points_possible, missing: assignment.missing,
-          dueAt: assignment.due_at, submittedAt: assignment.submitted_at,
-        }]));
-        if (!fetched.assignments.length) return;
-        const { data: savedAssignments, error: assignmentError } = await admin.from('assignments').upsert(fetched.assignments.map((assignment) => ({
-          user_id: userId, course_id: courseId, lms_assignment_id: assignment.lmsAssignmentId,
-          name: assignment.name, category: assignment.category, due_at: assignment.dueAt,
-          description_text: assignment.descriptionText,
-          points_possible: assignment.pointsPossible, score: assignment.score, grade: assignment.grade,
-          missing: assignment.missing, late: assignment.late, excused: assignment.excused,
-          submitted_at: assignment.submittedAt, html_url: assignment.htmlUrl,
-          updated_at: new Date().toISOString(),
-        })), { onConflict: 'course_id,lms_assignment_id' }).select('id,lms_assignment_id');
-        if (assignmentError) throw assignmentError;
-        if (previous.size) {
-          const savedIds = new Map(((savedAssignments ?? []) as { id: string; lms_assignment_id: string }[])
-            .map((assignment) => [assignment.lms_assignment_id, assignment.id]));
-          const current: NextAssign[] = fetched.assignments.flatMap((assignment) => {
-            const id = savedIds.get(assignment.lmsAssignmentId);
-            return id ? [{
-              key: `${courseId}:${assignment.lmsAssignmentId}`, id, name: assignment.name,
-              score: assignment.score, points: assignment.pointsPossible,
-              missing: assignment.missing, dueAt: assignment.dueAt,
-              submittedAt: assignment.submittedAt, courseId, courseName: course.name,
-            }] : [];
+      const assignmentRows: Record<string, unknown>[] = [];
+      for (const { course, fetched } of goodFetches) {
+        if (!fetched) continue;
+        const courseId = course.id;
+        const courseName = currentCourseByLms.get(course.lmsCourseId)?.name ?? course.name;
+        for (const assignment of fetched.assignments) {
+          const key = `${courseId}:${assignment.lmsAssignmentId}`;
+          const prior = previousByKey.get(key);
+          assignmentRows.push({
+            user_id: userId, course_id: courseId, lms_assignment_id: assignment.lmsAssignmentId,
+            name: assignment.name, category: assignment.category ?? prior?.category ?? null,
+            due_at: assignment.dueAt, description_text: assignment.descriptionText,
+            points_possible: assignment.pointsPossible, score: assignment.score, grade: assignment.grade,
+            missing: assignment.missing, late: assignment.late, excused: assignment.excused,
+            submitted_at: assignment.submittedAt, html_url: assignment.htmlUrl,
+            updated_at: checkedAt,
           });
-          events.push(...detectAssignmentChanges(previous, current).map((event) => activityRow(userId, event)));
         }
-      }));
-
-      if (events.length) {
-        const { error: activityError } = await admin.from('activity_events').insert(events);
-        if (activityError) throw activityError;
       }
 
-      await admin.from('lms_credentials').update({ last_verified: new Date().toISOString() }).eq('user_id', userId);
-      await admin.from('sync_runs').update({
-        status: 'complete', stage: 'Complete', finished_at: new Date().toISOString(),
-      }).eq('id', runId);
+      if (assignmentRows.length) {
+        const { data: savedAssignments, error: assignmentError } = await admin.from('assignments')
+          .upsert(assignmentRows, { onConflict: 'course_id,lms_assignment_id' })
+          .select('id,course_id,lms_assignment_id');
+        if (assignmentError) throw assignmentError;
+        const savedIds = new Map(((savedAssignments ?? []) as { id: string; course_id: string; lms_assignment_id: string }[])
+          .map((assignment) => [`${assignment.course_id}:${assignment.lms_assignment_id}`, assignment.id]));
+        for (const { course, fetched } of goodFetches) {
+          if (!fetched) continue;
+          const courseName = currentCourseByLms.get(course.lmsCourseId)?.name ?? course.name;
+          const priorForCourse = new Map([...previousByKey.entries()]
+            .filter(([key]) => key.startsWith(`${course.id}:`))
+            .map(([key, prior]) => [key, prior]));
+          const current: NextAssign[] = fetched.assignments.flatMap((assignment) => {
+            const key = `${course.id}:${assignment.lmsAssignmentId}`;
+            const id = savedIds.get(key);
+            return id ? [{
+              key, id, name: assignment.name, score: assignment.score, points: assignment.pointsPossible,
+              missing: assignment.missing, dueAt: assignment.dueAt, submittedAt: assignment.submittedAt,
+              courseId: course.id, courseName,
+            }] : [];
+          });
+          if (priorForCourse.size) {
+            events.push(...detectAssignmentChanges(priorForCourse, current).map((event) => activityRow(userId, event)));
+          }
+        }
+      }
+
+      const finishAt = new Date().toISOString();
+      const [activityResult] = await Promise.all([
+        events.length
+          ? admin.from('activity_events').insert(events)
+          : Promise.resolve({ error: null }),
+        admin.from('lms_credentials').update({ last_verified: finishAt }).eq('user_id', userId),
+        admin.from('sync_runs').update({
+          status: 'complete', stage: 'Complete', finished_at: finishAt,
+        }).eq('id', runId),
+      ]);
+      if (activityResult.error) throw activityResult.error;
       EdgeRuntime.waitUntil(refreshAiForUser(admin, userId).catch((error) => console.warn('AI update deferred:', error)));
-      return json({ ok: true, kind: 'quick', courses: trackedLmsCourses.length, events: events.length });
+      return json({
+        ok: true, kind: 'quick', courses: trackedLmsCourses.length, events: events.length,
+        timing_ms: {
+          canvas: Math.round(canvasDurationMs),
+          persistence: Math.round(performance.now() - persistenceStartedAt),
+          quick_branch_total: Math.round(performance.now() - quickStartedAt),
+        },
+      });
     }
 
+    await setStage('Fetching courses');
+    const lmsCourses = await provider.fetchCourses(cred.base_url, token);
     await setStage('Fetching assignments');
     const events: ReturnType<typeof activityRow>[] = [];
     const trackedCourses: { lmsId: string; id: string; name: string }[] = [];
@@ -400,4 +496,4 @@ Deno.serve(async (req) => {
     }
     return json({ error: e instanceof Error ? e.message : 'Sync failed' }, 502);
   }
-});
+}

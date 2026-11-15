@@ -46,7 +46,7 @@ export interface LMSProvider {
   name: string;
   testConnection(baseUrl: string, token: string): Promise<{ userName: string }>;
   fetchCourses(baseUrl: string, token: string): Promise<NormCourse[]>;
-  fetchAssignments(baseUrl: string, token: string, lmsCourseId: string): Promise<{
+  fetchAssignments(baseUrl: string, token: string, lmsCourseId: string, includeCategories?: boolean): Promise<{
     assignments: NormAssignment[];
     categories: NormCategory[];
   }>;
