@@ -17,12 +17,16 @@ describe('scheduled sync dispatch', () => {
     queryError = null;
     const userIds = ['accepted', 'running', 'failed', 'extra-1', 'extra-2', 'opted-out'];
     mocks.adminClient.mockReturnValue({
-      from: (table: string) => ({ select: async () => ({
-        data: table === 'lms_credentials'
-          ? userIds.map((user_id) => ({ user_id }))
-          : [{ user_id: 'opted-out', daily_sync: false }],
-        error: queryError,
-      }) }),
+      from: (table: string) => ({
+        select: () => ({
+          abortSignal: async () => ({
+            data: table === 'lms_credentials'
+              ? userIds.map((user_id) => ({ user_id }))
+              : [{ user_id: 'opted-out', daily_sync: false }],
+            error: queryError,
+          }),
+        }),
+      }),
     });
     vi.stubGlobal('Deno', {
       env: { get: (key: string) => ({ CRON_SECRET: 'cron-secret', SUPABASE_URL: 'https://example.test', SUPABASE_SERVICE_ROLE_KEY: 'service-key' })[key] },
@@ -33,7 +37,10 @@ describe('scheduled sync dispatch', () => {
     await import('./index.ts');
   });
 
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
 
   const request = (secret = 'cron-secret') => new Request('https://example.test/cron-trigger', {
     method: 'POST', headers: { Authorization: `Bearer ${secret}` },
@@ -61,7 +68,7 @@ describe('scheduled sync dispatch', () => {
       return new Response(null, { status: 409 });
     });
     const response = await handler(request());
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(202);
     expect(await response.json()).toMatchObject({ triggered: 0, already_running: 5, failed: 0 });
     expect(fetchMock).toHaveBeenCalledTimes(5);
     expect(peak).toBeLessThanOrEqual(3);
@@ -73,6 +80,27 @@ describe('scheduled sync dispatch', () => {
     const response = await handler(request());
     expect(response.status).toBe(502);
     expect(await response.json()).toMatchObject({ triggered: 4, failed: 1 });
+  });
+
+  it('reports a synchronous response from an outdated sync deployment as failed', async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 200 }));
+    const response = await handler(request());
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({ triggered: 0, failed: 5 });
+  });
+
+  it('stops dispatching when the deadline expires and reports every remaining target', async () => {
+    const deadline = new AbortController();
+    vi.spyOn(AbortSignal, 'timeout').mockReturnValueOnce(deadline.signal);
+    fetchMock.mockImplementation(async (_url, init) => {
+      deadline.abort();
+      init.signal.throwIfAborted();
+    });
+
+    const response = await handler(request());
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({ triggered: 0, failed: 5 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('fails on a target lookup error instead of reporting an empty successful run', async () => {

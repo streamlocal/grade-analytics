@@ -13,8 +13,11 @@ Deno.serve(async (req) => {
   if (!secret || auth !== secret) return json({ error: 'Forbidden' }, 403);
 
   const admin = adminClient();
-  const { data: creds, error: credsError } = await admin.from('lms_credentials').select('user_id');
-  const { data: settings, error: settingsError } = await admin.from('user_settings').select('user_id,daily_sync');
+  const deadline = AbortSignal.timeout(90_000);
+  const [{ data: creds, error: credsError }, { data: settings, error: settingsError }] = await Promise.all([
+    admin.from('lms_credentials').select('user_id').abortSignal(deadline),
+    admin.from('user_settings').select('user_id,daily_sync').abortSignal(deadline),
+  ]);
   if (credsError || settingsError) {
     console.error('Could not load scheduled sync targets', credsError, settingsError);
     return json({ error: 'Could not load scheduled sync targets' }, 502);
@@ -33,27 +36,30 @@ Deno.serve(async (req) => {
   // Each sync acknowledges after acquiring its lock, without waiting for
   // Canvas or database writes. A small pool bounds simultaneous requests.
   await Promise.all(Array.from({ length: Math.min(3, targets.length) }, async () => {
-    while (next < targets.length) {
+    while (next < targets.length && !deadline.aborted) {
       const userId = targets[next++];
       try {
         const response = await fetch(url, {
           method: 'POST',
           headers: { Authorization: `Bearer ${svc}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ mode: 'sync', for_user: userId, background: true }),
-          signal: AbortSignal.timeout(30_000),
+          signal: AbortSignal.any([deadline, AbortSignal.timeout(15_000)]),
         });
-        if (response.ok) started++;
+        await response.body?.cancel().catch(() => {});
+        if (response.status === 202) started++;
         else if (response.status === 409) running++; // Existing per-user lock.
         else {
           failed++;
           console.error('Scheduled sync dispatch failed', response.status);
         }
-        await response.body?.cancel();
       } catch (error) {
         failed++;
         console.error('Scheduled sync dispatch failed', error);
       }
     }
   }));
-  return json({ ok: failed === 0, triggered: started, already_running: running, failed, users: targets.length }, failed ? 502 : 200);
+  const undispatched = targets.length - next;
+  if (undispatched) console.error('Scheduled sync dispatch deadline reached', { undispatched });
+  failed += undispatched;
+  return json({ ok: failed === 0, triggered: started, already_running: running, failed, users: targets.length }, failed ? 502 : 202);
 });

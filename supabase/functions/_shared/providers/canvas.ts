@@ -30,15 +30,14 @@ export const canvasProvider: LMSProvider = {
     });
   },
 
-  async fetchAssignments(baseUrl, token, lmsCourseId) {
-    const [assignments, subs, groups] = await Promise.all([
+  async fetchAssignments(baseUrl, token, lmsCourseId, includeCategories = true) {
+    const [assignments, groups] = await Promise.all([
       canvasFetch(baseUrl, token, `/api/v1/courses/${lmsCourseId}/assignments?per_page=100&include[]=submission`),
-      canvasFetch(baseUrl, token, `/api/v1/courses/${lmsCourseId}/students/submissions?student_ids[]=self&per_page=100&include[]=assignment`),
       // Assignment groups give us category names (and weights when present).
-      canvasFetch(baseUrl, token, `/api/v1/courses/${lmsCourseId}/assignment_groups?per_page=100`).catch(() => []),
+      includeCategories
+        ? canvasFetch(baseUrl, token, `/api/v1/courses/${lmsCourseId}/assignment_groups?per_page=100`).catch(() => [])
+        : Promise.resolve([]),
     ]);
-    const subById: Record<string, Record<string, unknown>> = {};
-    for (const s of (Array.isArray(subs) ? subs : [])) subById[String(s.assignment_id)] = s;
     const groupName: Record<string, string> = {};
     const categories: NormCategory[] = [];
     for (const g of (Array.isArray(groups) ? groups : [])) {
@@ -49,8 +48,9 @@ export const canvasProvider: LMSProvider = {
 
     const list = (Array.isArray(assignments) ? assignments : []).map((a) => {
       const inline = a.submission ?? {};
-      const extra = subById[String(a.id)] ?? {};
-      const sub = { ...inline, ...extra } as Record<string, unknown>;
+      // Canvas's assignment endpoint already returns the current user's
+      // submission when include[]=submission is supplied.
+      const sub = inline as Record<string, unknown>;
       const score = (sub.score ?? null) as number | null;
       const missing = Boolean(sub.missing);
       const late = Boolean(sub.late);

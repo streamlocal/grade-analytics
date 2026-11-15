@@ -17,6 +17,7 @@ describe('background scheduled sync acceptance', () => {
   let background: Promise<void>[];
   let updates: unknown[];
   let existing: { id: string; started_at: string }[];
+  let insertError: { code: string } | null;
   let rejectCredential: (error: Error) => void;
 
   beforeEach(async () => {
@@ -24,12 +25,13 @@ describe('background scheduled sync acceptance', () => {
     background = [];
     updates = [];
     existing = [];
+    insertError = null;
     const admin = { from: () => {
       const query = {
         select: () => query, eq: () => query,
         limit: async () => ({ data: existing }),
         insert: () => query,
-        single: async () => ({ data: { id: 'run-id' }, error: null }),
+        single: async () => ({ data: insertError ? null : { id: 'run-id' }, error: insertError }),
         update: (value: unknown) => { updates.push(value); return query; },
       };
       return query;
@@ -83,6 +85,14 @@ describe('background scheduled sync acceptance', () => {
   it('does not start another job when a sync is already running', async () => {
     existing = [{ id: 'existing-run', started_at: new Date().toISOString() }];
     expect((await handler(request())).status).toBe(409);
+    expect(background).toHaveLength(0);
+  });
+
+  it('reports a database failure separately from a lock collision', async () => {
+    insertError = { code: '23505' };
+    expect((await handler(request())).status).toBe(409);
+    insertError = { code: '08006' };
+    expect((await handler(request())).status).toBe(502);
     expect(background).toHaveLength(0);
   });
 });
